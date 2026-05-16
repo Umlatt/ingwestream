@@ -26,3 +26,4 @@
 *If deep domain context is required, prompt the user to explicitly attach the relevant file:*
 - UI/UX Guidelines -> `#file: .github/prompts/ui.prompt.md`
 - Backend/Rust IPC -> `#file: .github/prompts/backend.prompt.md`
+- Performance & Throttling -> `#file: .github/prompts/performance.prompt.md`
