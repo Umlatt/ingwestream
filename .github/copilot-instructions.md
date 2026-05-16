@@ -1,30 +1,28 @@
-# Ingwe Stream: Workspace Instructions
+# Ingwe: Copilot Workspace Instructions
 
-## 1. Architecture & Tech Stack
-- **Core:** Rust (Backend), Tauri v2, TypeScript, React/Svelte/Vue, Tailwind CSS, headless UI (shadcn/ui).
+## 1. Architecture & Stack
+- **Core:** Rust (Tauri v2), TypeScript, React, Tailwind CSS v4, shadcn/ui.
 - **WebViews:** Native OS webviews (WebView2, WKWebView, WebKitGTK).
+- **State:** Isolated wrappers with strict cross-session persistence (cookies, localStorage).
 
-## 2. UI & Identity
-- **Name:** Ingwe Stream
-- **Theme:** Strict Dark Mode (deep grays, OLED blacks). No light mode. Tailwind `class` strategy.
-- **WebViews:** Force dark mode via `prefers-color-scheme: dark`. Inject custom CSS/JS on init if native support fails.
+## 2. Identity & UI Standards
+- **App Name:** Ingwe
+- **Theme:** Strict Dark Mode (OLED blacks, deep grays). No light mode. Tailwind `class` strategy.
+- **Service WebViews:** Force `prefers-color-scheme: dark`. Inject custom CSS/JS on init if native support fails.
 
-## 3. Core Functionality
-- **Services:** Netflix, Prime, Disney+, Plex, Jellyfin, Apple TV, + Custom URLs (fetch favicons).
-- **Sessions:** Preserve cookies, local storage, and session data across restarts.
-- **Resource Management:** Aggressively throttle, pause, or hide background webviews when out of focus.
+## 3. Core Features & Integration
+- **Throttling:** Aggressively pause/hide out-of-focus background webviews to minimize RAM/CPU.
+- **Tray:** `tauri-plugin-tray` with standard media playback controls.
+- **Global Media:** Route OS media key events (SMTC, MPRIS) directly to the active webview.
+- **Playback:** Widevine DRM enabled via platform flags. Support HTML5, HLS, DASH, WebRTC.
 
-## 4. OS Integration
-- **Tray:** `tauri-plugin-tray` with playback controls.
-- **Media Controls:** OS-level integration (SMTC, MPRIS). Route media keys to active webview.
-- **DRM & Codecs:** Widevine DRM support. Enable flags for WebView2/WebKitGTK. Support HTML5, HLS, DASH, WebRTC.
+## 4. Output & Token Discipline
+- **Zero Fluff:** Omit pleasantries, conversational filler, and redundant step-by-step reasoning.
+- **Code Delivery:** Output complete, fully updated files without placeholders. Only use snippets if the target file > 1000 lines.
+- **CLI Rules:** Default to `vim` for all terminal text editing examples.
+- **Context Filters:** Do not ingest `target/`, `dist/`, generated assets, or build logs.
 
-## 5. Token Efficiency & Context Limits
-- **Context Filtering:** Do not automatically ingest build artifacts (`target/`, `dist/`), generated files, massive `.json` files, or logs. Limit scope purely to actively modified components.
-- **Direct Output:** Eliminate conversational filler, redundant step-by-step reasoning, and repetitive pleasantries in your output.
-- **Tool Discipline:** Minimize repetitive file-reading loops. Aggregate data extraction into single, concise steps.
-
-## 6. Developer Workflow
-- **Structure:** Modular logic (`components`, `hooks`, `services`, `utils`). Strict IPC limits in `capabilities/default.json`.
-- **Terminal:** Default to `vim` for all CLI file editing examples.
-- **Code Delivery:** Always provide the complete and updated file without placeholders or partial snippets, unless the target file strictly exceeds 1000 lines.
+## 5. Knowledge Routing (On-Demand)
+*If deep domain context is required, prompt the user to explicitly attach the relevant file:*
+- UI/UX Guidelines -> `#file: .github/prompts/ui.prompt.md`
+- Backend/Rust IPC -> `#file: .github/prompts/backend.prompt.md`
