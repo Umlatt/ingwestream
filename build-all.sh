@@ -52,7 +52,7 @@ if [[ "$WIN_OK" == true ]]; then
     if npm run tauri build -- \
         --target x86_64-pc-windows-msvc \
         --bundles nsis \
-        --runner cargo-xwin 2>&1; then
+        --runner cargo-xwin 2>&1 | grep -v 'warning 5202'; then
 
         WIN_BIN="src-tauri/target/x86_64-pc-windows-msvc/release/ingwestream.exe"
         WIN_NSIS="$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -name '*.exe' | head -1)"
