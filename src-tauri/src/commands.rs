@@ -68,19 +68,31 @@ pub fn open_service(
         .map(|p| p.join("service-webview"))
         .unwrap_or_else(|_| std::path::PathBuf::from("service-webview"));
 
-    // Create child webview OUTSIDE the lock.
-    let new_view = main.add_child(
-        WebviewBuilder::new("service-view", WebviewUrl::External(parsed_url))
-            .initialization_script(WEBVIEW_DARK_INIT)
-            .data_directory(data_dir),
-        LogicalPosition::new(0.0, TITLEBAR_H),
-        LogicalSize::new(w, h.max(0.0)),
-    )?;
+    // WebView2 on Windows requires add_child to run on the Win32 message-loop
+    // thread (the main thread) so that COM completion callbacks can be delivered.
+    // Tauri command handlers run on a background thread-pool thread where COM
+    // callbacks never fire — causing an infinite hang. Dispatch to the main
+    // thread and wait on a one-shot channel for the result.
+    let (tx, rx) = std::sync::mpsc::channel::<Result<tauri::Webview<tauri::Wry>, tauri::Error>>();
+    app.run_on_main_thread(move || {
+        let result = main.add_child(
+            WebviewBuilder::new("service-view", WebviewUrl::External(parsed_url))
+                .initialization_script(WEBVIEW_DARK_INIT)
+                .data_directory(data_dir),
+            LogicalPosition::new(0.0, TITLEBAR_H),
+            LogicalSize::new(w, h.max(0.0)),
+        );
+        if let Ok(ref v) = result {
+            let _ = v.show();
+            let _ = v.set_focus();
+        }
+        let _ = tx.send(result);
+    })?;
 
-    // Explicitly show and focus the child webview. On Windows, WebView2 may not
-    // automatically surface a newly created child view above the main webview.
-    let _ = new_view.show();
-    let _ = new_view.set_focus();
+    let new_view = rx
+        .recv()
+        .map_err(|_| AppError::Tauri("add_child channel closed".into()))?
+        .map_err(AppError::from)?;
 
     // Store new view under lock.
     {
