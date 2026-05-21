@@ -38,19 +38,22 @@ function ServiceFavicon({
   size?: "sm" | "lg" | "xl";
 }) {
   const [failed, setFailed] = useState(false);
-  const cls =
-    size === "xl"
-      ? "size-16 shrink-0"
-      : size === "lg"
-        ? "size-12 shrink-0"
-        : "size-5 shrink-0";
-  if (failed)
-    return <Globe className={cn(cls, "text-text-muted")} />;
+  // Inline (sm) renders at a fixed size; lg/xl auto-size to the favicon's
+  // natural pixel dimensions, capped so the layout stays stable. `w-auto h-auto`
+  // prevents stretching tiny (16×16) favicons into a blurry larger size.
+  const isInline = size === "sm";
+  const imgCls = isInline
+    ? "size-5 shrink-0 rounded-sm"
+    : "w-auto h-auto max-w-10 max-h-10 rounded-md";
+  // Globe fallback is an SVG with no natural size — give it an explicit size
+  // matching the variant so layout doesn't collapse when a favicon fails to load.
+  const fallbackCls = isInline ? "size-5 text-text-muted" : "size-8 text-text-muted";
+  if (failed) return <Globe className={fallbackCls} />;
   return (
     <img
       src={src}
       alt={alt}
-      className={cn(cls, size === "sm" ? "rounded-sm" : "rounded-md")}
+      className={imgCls}
       onError={() => setFailed(true)}
     />
   );
@@ -83,7 +86,9 @@ function ServiceLoadingOverlay({ activeId }: { activeId: string }) {
     <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-bg-base">
       {service && (
         <>
-          <div className="relative">
+          {/* Fixed-size container so the spinner ring positions consistently
+              regardless of the favicon's natural pixel size inside it. */}
+          <div className="relative flex items-center justify-center size-12">
             <ServiceFavicon src={service.faviconUrl} alt={service.label} size="lg" />
             <div className="absolute -inset-3 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
           </div>
@@ -108,7 +113,9 @@ function ServiceCard({ service }: { service: ServiceDefinition }) {
       title={service.label}
       aria-label={service.label}
       className={cn(
-        "flex items-center justify-center p-4 aspect-square w-full",
+        // Fixed square size so every cell in every pane is identical regardless
+        // of the favicon's natural size.
+        "shrink-0 size-24 flex items-center justify-center",
         "transition-transform duration-150",
         "hover:scale-110 active:scale-95",
         "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -169,15 +176,12 @@ function LauncherPane({
         {title}
       </p>
       <div className="flex-1 min-h-0 overflow-y-auto px-8 pb-6">
-        <div className="max-w-6xl mx-auto">
-          {/* auto-fill keeps cells a uniform size — auto-fit would stretch the
-              last row's items to fill empty space, making them larger than
-              cells in fuller rows or in the other pane. */}
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-4">
-            {services.map((s) => (
-              <ServiceCard key={s.id} service={s} />
-            ))}
-          </div>
+        {/* flex-wrap + justify-center keeps every row — including a partial
+            last row — horizontally centred within the pane. */}
+        <div className="flex flex-wrap justify-center gap-3">
+          {services.map((s) => (
+            <ServiceCard key={s.id} service={s} />
+          ))}
         </div>
       </div>
     </section>

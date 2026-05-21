@@ -156,8 +156,11 @@ export { SERVICES };
 export function useActiveServices(): ServiceDefinition[] {
   const enabledIds = useServicesStore((s) => s.enabledIds);
   const customServices = useServicesStore((s) => s.customServices);
+  // Sort the merged list by label so newly added/enabled services slot into
+  // alphabetic order rather than appearing at the end (custom) or in registry
+  // order (built-in).
   return [
     ...SERVICES.filter((s) => enabledIds.includes(s.id)),
     ...customServices,
-  ];
+  ].sort((a, b) => a.label.localeCompare(b.label));
 }
