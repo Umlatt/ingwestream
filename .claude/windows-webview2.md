@@ -1,33 +1,33 @@
-# Ingwe — Windows WebView2 Threading Model & Known Issues
+# IngweStream — Windows WebView2 Threading Model & Known Issues
 
 ## Architecture summary
 
 On Windows, Tauri uses **wry** which uses **WebView2** (Chromium-based, via EdgeHTML COM API).
-WebView2 is a COM Single-Threaded Apartment (STA) component. All WebView2 creation and
-event callbacks must be delivered on a thread that is pumping Win32 messages.
+WebView2 is a COM Single-Threaded Apartment (STA) component. All WebView2 creation must be
+done on a thread that is pumping Win32 messages.
 
-wry's `new_as_child` / `new_in_hwnd` calls:
+wry's `new_as_child` / `new_in_hwnd` call chain:
 
-```
+```text
 new_in_hwnd()
   → CoInitializeEx(COINIT_APARTMENTTHREADED)
-  → CreateWindowExW(...)           // create container HWND
-  → create_environment(...)        // async, waits via wait_with_pump(rx)
-  → create_controller(hwnd, ...)   // async, waits via wait_with_pump(rx)
-  → init_webview(...)              // sync setup
+  → CreateWindowExW(...)              // create container HWND
+  → create_environment(...)           // async; waits via wait_with_pump(rx)
+  → create_controller(hwnd, ...)      // async; waits via wait_with_pump(rx)
+  → init_webview(...)                 // sync setup
 ```
 
 `wait_with_pump` pumps the calling thread's Win32 message queue via
 `MsgWaitForMultipleObjectsEx` + `PeekMessage` + `DispatchMessage` until the COM
-completion callback fires and sends on a `mpsc::Sender`.
+completion callback fires.
 
 ---
 
 ## Solution: pre-create in `setup`, navigate via `eval()`
 
-**The fundamental fix is to call `add_child` exactly once, during `setup`, before any
-WebView2 IPC traffic or user interaction.** The child webview starts on `about:blank` and
-is immediately hidden. Service switching navigates it via `eval()`:
+`add_child` is called **exactly once**, during `setup`, before any WebView2 IPC traffic.
+The child webview starts on `about:blank` and is immediately hidden. Service switching
+navigates it via `eval()`:
 
 ```rust
 // In setup (Win32 main thread, clean message pump):
@@ -36,136 +36,146 @@ commands::init_service_webview(&app.handle())?;
 // open_service command (any thread — no COM work):
 v.eval(&format!("window.location.href = {url_json};"))?;
 v.show()?;
-v.set_focus()?;
+if let Err(e) = v.set_focus() {
+    log::warn!("open_service: set_focus failed (non-fatal): {e}");
+}
 ```
 
-`eval()` posts the script to WebView2 asynchronously and returns immediately. It is safe
-to call from any thread, including Tokio worker threads. No COM STA requirement. No
-reentrancy risk. No `run_on_main_thread` needed.
-
-`close_service` **hides** the webview (does not destroy it). The handle stays in `AppState`
-so the next `open_service` hits the fast eval path. `dispatch_media_key` gates on
-`active_service_id` so media keys are not dispatched to a hidden/inactive webview.
-
-Initialization scripts (`WEBVIEW_DARK_INIT`) persist for the webview's lifetime in WebView2
-and re-execute on every navigation, so dark mode and the media bridge work on each service.
-
-Session isolation between services is preserved — WebView2 scopes cookies/storage by
-origin domain, so Spotify and YouTube use separate storage even in one webview instance.
+`eval()` posts the script asynchronously and returns immediately. Safe from any thread.
+`close_service` **hides** the webview (does not destroy it).
 
 ---
 
 ## Rule 1 — Call `add_child` only from `setup`
 
-**Never call `add_child` from a `#[tauri::command]` handler or any Tokio worker thread.**
+**Never call `add_child` from a `#[tauri::command]` handler or Tokio thread.**
 
-Tauri command handlers run on Tokio worker threads. `wait_with_pump` called on a background
-thread pumps the *main thread's* message queue by posting messages cross-thread — this
-interferes with in-flight WebView2 IPC events and can cause the COM wait to never complete.
+Command handlers run on Tokio worker threads. `wait_with_pump` on a background thread
+pumps the *main thread's* message queue cross-thread, interfering with in-flight WebView2
+IPC events. Even via `run_on_main_thread`, calling `add_child` inside an active WebView2
+IPC callback causes reentrant `wait_with_pump` that can hang indefinitely.
 
-Even on the correct Win32 main thread via `run_on_main_thread`, calling `add_child` from
-inside an active WebView2 IPC event handler context creates a reentrant `wait_with_pump`
-loop that can hang indefinitely.
-
-The only safe context for `add_child` is Tauri's `setup` callback:
+The only safe context is `setup`:
 
 - Runs on the Win32 main thread.
-- Runs before the event loop starts, before any WebView2 IPC events.
-- Message pump is clean — no competing COM callbacks in flight.
-- Consistent with how Tauri itself initialises all declared windows.
+- Runs before the event loop starts — no WebView2 IPC events in flight.
+- Clean message pump.
 
 ---
 
-## Rule 2 — Never queue two concurrent `add_child` closures
+## Rule 2 — Never pass `.data_directory()` to `WebviewBuilder`
 
-This is now a historical note — `add_child` is called once in `setup` and never again.
-The mechanism that caused the original deadlock is documented here for reference.
-
-When `wait_with_pump` pumps Win32 messages, it dispatches ALL pending messages — including
-winit user-events queued by `run_on_main_thread`. If two `add_child` closures were queued:
-
-1. Closure A runs, enters `wait_with_pump` for WebView2 environment creation.
-2. `wait_with_pump` processes pending messages, including the winit event for Closure B.
-3. Closure B runs *inside* Closure A's `wait_with_pump` loop.
-4. Closure B tries to register label `"service-view"` → label-registry conflict or
-   WebView2 reentrancy deadlock.
-5. Window freezes permanently.
-
-Since `add_child` now runs only in `setup` (before the event loop, before any user
-interaction), this scenario cannot occur.
-
-The `isLoading` guard in `src/store/services.ts` is retained as a UX guard — it prevents
-visible spinner flicker from rapid-clicking while a service is navigating — but it is no
-longer load-bearing for deadlock prevention.
+`.data_directory()` forces `CreateCoreWebView2EnvironmentWithOptions` with a specific
+user-data path, adding a second async `wait_with_pump` chain. Without it, wry reuses the
+default environment, skipping that step entirely.
 
 ---
 
-## Rule 3 — Never pass `.data_directory()` to `WebviewBuilder`
+## Known issue: `initialization_script` silently fails for child webviews
 
-`.data_directory()` forces wry to call `CreateCoreWebView2EnvironmentWithOptions` with a
-specific user-data path, creating a brand-new `CoreWebView2Environment`. This is a second
-async operation requiring its own `wait_with_pump` chain, even when called from `setup`.
+**Symptom**: `initialization_script(WEBVIEW_DARK_INIT)` is set on the `WebviewBuilder`,
+but `window.__ingweMedia` is undefined after page load; the `script-ready` diagnostic ping
+never appears in logs.
 
-Without `.data_directory()`, wry reuses the default user-data folder shared with the main
-WebviewWindow, skipping the environment-creation step entirely.
+**Root cause**: On Windows/WebView2, `AddScriptToExecuteOnDocumentCreated` is not called
+for child webviews created via `add_child`. This is a wry/WebView2 bug.
+
+**Fix**: The `on_page_load(PageLoadEvent::Finished)` callback is the reliable injection
+path. The `initialization_script` call is kept as belt-and-suspenders for non-Windows
+platforms and future wry fixes.
+
+Injection guard prevents double-execution:
+
+```js
+if (!window.__ingweMediaInjected) {
+  window.__ingweMediaInjected = true;
+  // … WEBVIEW_DARK_INIT body …
+}
+```
+
+Log line confirming injection:
+
+```text
+on_page_load: injected media bridge for https://…
+```
+
+If this line is absent for a service, the media bridge is not installed and media keys
+will not work.
 
 ---
 
-## WebView2 reentrancy reference
+## Known issue: `RegisterHotKey` key-repeat spam
 
-From wry's own source comment in `webview2/mod.rs`:
+**Symptom**: On Windows, holding a media key fires 40+ `WM_HOTKEY` messages per second.
+`dispatch_media_key` is called each time, causing rapid-fire `eval()` calls.
+
+**Fix**: 300 ms per-action debounce using `OnceLock<Mutex<HashMap<String, Instant>>>`.
 
 ```rust
-// Use `dispatch_handler` to schedule the run on the message loop after this callback completes,
-// this is needed for `new_window_req_handler` to create new webviews for `NewWindowResponse::Create`
-// or it will deadlock, see
-// https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/threading-model#reentrancy
+static MEDIA_DEBOUNCE: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+const DEBOUNCE_MS: u64 = 300;
 ```
 
-The same reentrancy applies when `add_child` is called during any active WebView2 callback
-or event handler context.
+Each call to `dispatch_media_key` checks the last dispatch time per action string and
+returns early if under 300 ms. The map is initialised lazily on first use.
 
 ---
 
-## Diagnostic logging
+## Known issue: `set_focus()` fails on some services
 
-`init_service_webview` (called once in `setup`):
-```
-init_service_webview: creating child webview logical_size=<w>x<h>
-init_service_webview: child webview created and hidden
-```
+**Symptom**: `open_service` call completes but returns a Tauri error log:
 
-`open_service` command (called on every service selection):
-```
-open_service: id=<service-id> same_service=false   ← navigates + shows
-open_service: id=<service-id> same_service=true    ← shows only (no reload)
+```text
+open_service: set_focus failed (non-fatal): WebView2 error: WindowsError(Error { code: HRESULT(0x80070057) })
 ```
 
-If `init_service_webview` logs stop at **"creating child webview"** → `add_child` hung.
-Likely causes:
-- A `.data_directory()` was added to the `WebviewBuilder` (regression check).
-- The system's WebView2 runtime is corrupt or not installed.
-- Another `add_child` was called concurrently (should be impossible given current code).
+This has been observed on Crunchyroll. The service still opens and is navigable.
 
-If `open_service` returns `Err("service webview not initialized")` → `init_service_webview`
-failed during setup and the error was swallowed. Check logs for the init failure.
+**Fix**: `set_focus()` is called but the error is caught and logged as a warning rather
+than propagated as an `AppError`. The service view is shown regardless.
 
 ---
 
-## `wait_with_pump` internals (wry source)
+## Known issue: Global shortcut registration panics on Linux/WSLg
+
+**Symptom**: Calling `app.global_shortcut().on_shortcut("MediaPlayPause", …)` panics
+with an `XGrabKey` error when the desktop environment has claimed the media keys.
+
+**Fix**: Every shortcut registration is wrapped in `std::panic::catch_unwind(AssertUnwindSafe(…))`:
 
 ```rust
-// webview2_com crate — schematic
+let result = panic::catch_unwind(AssertUnwindSafe(|| {
+    app.global_shortcut().on_shortcut(key, move |_app, _shortcut, event| {
+        if event.state() == ShortcutState::Pressed {
+            dispatch_media_key(&handle, &action_str);
+        }
+    })
+}));
+match result {
+    Ok(Ok(_))  => { registered += 1; }
+    Ok(Err(e)) => log::warn!("could not register {key}: {e}"),
+    Err(_)     => log::warn!("{key} panicked during registration (likely grabbed by DE)"),
+}
+```
+
+Setup continues with however many shortcuts registered successfully (0 is acceptable).
+
+---
+
+## `wait_with_pump` internals (wry source, schematic)
+
+```rust
 pub fn wait_with_pump<T>(rx: Receiver<T>) -> Result<T> {
     let mut msg = MSG::default();
     loop {
         match rx.try_recv() {
             Ok(result) => return result,
             Err(_) => {
-                MsgWaitForMultipleObjectsEx(0, None, SOME_TIMEOUT, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+                MsgWaitForMultipleObjectsEx(0, None, TIMEOUT, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
                 while PeekMessageW(&mut msg, HWND::default(), 0, 0, PM_REMOVE) {
                     TranslateMessage(&msg);
-                    DispatchMessageW(&msg);      // ← dispatches ALL window messages
+                    DispatchMessageW(&msg);   // ← dispatches ALL window messages, including
+                                              //   winit run_on_main_thread user-events
                 }
             }
         }
@@ -173,29 +183,60 @@ pub fn wait_with_pump<T>(rx: Receiver<T>) -> Result<T> {
 }
 ```
 
-`DispatchMessageW` dispatches to any HWND's window procedure, including winit's hidden
-message window which handles `run_on_main_thread` user events. This is why calling
-`add_child` during active WebView2 IPC processing is unsafe.
+This is why calling `add_child` inside any active WebView2 IPC handler is unsafe — the
+`DispatchMessageW` loop can re-enter the same handler context.
 
 ---
 
-## Test procedure for Windows
+## Resize architecture
 
-1. Build: `./build-all.sh` (or `npm run tauri build` on a Windows machine).
-2. Run the `.exe`. Observe logs in `%LOCALAPPDATA%\com.lazylionconsulting.ingwestream\logs\Ingwe.log`.
-3. On startup, confirm both init log lines appear: `init_service_webview: creating…` then `…created and hidden`.
-4. Click a service once. Expected: service opens within ~3 s.
-5. Rapidly click a different service while the first is loading. Expected: service switches cleanly.
-6. Click the already-active service. Expected: no reload (same_service=true in log).
-7. Check that the window stays responsive (can minimise/maximise/drag) throughout.
+The child webview is repositioned by `apply_resize_all` whenever:
+
+- The OS window is resized (`on_window_event(Resized)`)
+- Fullscreen is toggled (`toggle_fullscreen_layout` / `toggle_fullscreen_from_shortcut`)
+- A titlebar/sidebar overlay appears/disappears (`show_titlebar_overlay`)
+- React requests a re-apply after `fullscreen-changed` (`apply_fullscreen_resize`)
+
+Position is always in **logical pixels** using `LogicalPosition` + `LogicalSize`, so DPI
+scaling is handled automatically by wry.
+
+```text
+Normal:      pos=(0, 32),      size=(w, h-32)
+Fullscreen:  pos=(0, 0),       size=(w, h)
+FS+titlebar: pos=(0, 32),      size=(w, h-32)
+FS+sidebar:  pos=(208, 0),     size=(w-208, h)
+FS+both:     pos=(208, 32),    size=(w-208, h-32)
+```
 
 ---
 
-## Other Windows-specific notes
+## Diagnostic procedure (Windows)
 
-- Window frame: `decorations: false` in `tauri.conf.json`. React renders the custom
-  titlebar. `data-tauri-drag-region` attribute on the titlebar div enables dragging.
-- DPI: Tauri handles DPI scaling. Use logical pixels in `LogicalSize` / `LogicalPosition`.
+1. Build: `npm run tauri:build` (or `./build-all.sh`).
+2. Run `.exe`. Open logs at `%LOCALAPPDATA%\com.lazylionconsulting.ingwestream\logs\ingwe.log`.
+3. On startup confirm both:
+   - `init_service_webview: creating child webview logical_size=WxH`
+   - `init_service_webview: child webview created and hidden`
+4. Select a service. Confirm:
+   - `open_service: id=<id> same_service=false`
+   - `on_page_load: injected media bridge for https://…`
+   - `service webview init script loaded`
+5. Press a media key. Confirm `dispatch_media_key: eval ok action=<action>`.
+6. If `init_service_webview` stops at "creating…" → `add_child` hung (see Rule 1).
+7. If `open_service` returns "service webview not initialized" → init failed in setup.
+8. If `dispatch_media_key: no active service` → media key pressed before any service selected.
+9. If `on_page_load: inject failed` → `eval()` error; check for CSP or WebView2 issues.
+
+---
+
+## Window configuration notes
+
+- `decorations: false` — React renders the custom titlebar. `data-tauri-drag-region`
+  enables OS-level window dragging.
+- `resizable: true` — required for `WS_THICKFRAME`, which `startResizeDragging` needs
+  to send `WM_SYSCOMMAND(SC_SIZE)`.
+- `maximizable: false` — prevents `decorations: false` windows from maximising over the
+  taskbar (a known Windows behaviour where frameless maximised windows cover the work area).
+- `visible: false` — window shown programmatically in `setup` after state is ready.
+- DPI: Tauri handles DPI scaling; always use logical pixels for child webview positioning.
 - WebView2 devtools: press F12 inside the child webview in dev builds (`devtools` feature).
-- Widevine DRM: not yet configured. Requires passing `--enable-features=Widevine` via
-  `additional_browser_args` on the `WebviewBuilder` (platform-specific, Windows only).
