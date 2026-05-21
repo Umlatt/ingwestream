@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Globe } from "lucide-react";
+import { getVersion, getName } from "@tauri-apps/api/app";
 import { cn } from "@/lib/utils";
 import { useServicesStore, useActiveServices } from "@/store/services";
 import type { ServiceDefinition } from "@/services/serviceRegistry";
@@ -34,17 +35,22 @@ function ServiceFavicon({
 }: {
   src: string;
   alt: string;
-  size?: "sm" | "lg";
+  size?: "sm" | "lg" | "xl";
 }) {
   const [failed, setFailed] = useState(false);
-  const cls = size === "lg" ? "size-12 shrink-0" : "size-5 shrink-0";
+  const cls =
+    size === "xl"
+      ? "size-16 shrink-0"
+      : size === "lg"
+        ? "size-12 shrink-0"
+        : "size-5 shrink-0";
   if (failed)
     return <Globe className={cn(cls, "text-text-muted")} />;
   return (
     <img
       src={src}
       alt={alt}
-      className={cn(cls, size === "lg" ? "rounded-md" : "rounded-sm")}
+      className={cn(cls, size === "sm" ? "rounded-sm" : "rounded-md")}
       onError={() => setFailed(true)}
     />
   );
@@ -99,18 +105,17 @@ function ServiceCard({ service }: { service: ServiceDefinition }) {
     <button
       onClick={() => openService(service)}
       disabled={isLoading}
+      title={service.label}
+      aria-label={service.label}
       className={cn(
-        "flex flex-col items-center justify-center gap-4 p-5 rounded-lg",
-        "bg-bg-surface border border-border-base",
-        "hover:bg-bg-elevated hover:border-border-strong transition-colors duration-150",
+        "flex items-center justify-center p-4 aspect-square w-full",
+        "transition-transform duration-150",
+        "hover:scale-110 active:scale-95",
         "disabled:opacity-50 disabled:cursor-not-allowed",
-        "aspect-square w-full",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-md",
       )}
     >
-      <ServiceFavicon src={service.faviconUrl} alt={service.label} size="lg" />
-      <span className="text-sm text-text-secondary text-center leading-tight line-clamp-2">
-        {service.label}
-      </span>
+      <ServiceFavicon src={service.faviconUrl} alt={service.label} size="xl" />
     </button>
   );
 }
@@ -118,42 +123,62 @@ function ServiceCard({ service }: { service: ServiceDefinition }) {
 function ServiceLauncher() {
   const services = useActiveServices();
 
-  const video = services.filter((s) => s.category === "video" || s.isCustom);
+  // Music goes in the music pane; everything else (video, uncategorised custom, …)
+  // goes in the video pane so the two panes split the available height evenly.
   const music = services.filter((s) => s.category === "music");
-  const uncategorised = services.filter(
-    (s) => !s.category && !s.isCustom,
-  );
+  const video = services.filter((s) => s.category !== "music");
 
   return (
-    <div className="absolute inset-0 overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-8 py-10">
-        <LauncherSection title="Video" services={video} />
-        <LauncherSection title="Music" services={music} />
-        {uncategorised.length > 0 && (
-          <LauncherSection title="Other" services={uncategorised} />
-        )}
-      </div>
+    <div className="absolute inset-0 flex flex-col">
+      <LauncherPane title="Video" services={video} />
+      <div className="shrink-0 border-t border-border-base" />
+      <LauncherPane title="Music" services={music} />
+      <LauncherFooter />
     </div>
   );
 }
 
-function LauncherSection({
+function LauncherFooter() {
+  const [appName, setAppName] = useState("IngweStream");
+  const [version, setVersion] = useState("");
+  useEffect(() => {
+    getName().then(setAppName).catch(() => {});
+    getVersion().then(setVersion).catch(() => {});
+  }, []);
+  return (
+    <footer className="shrink-0 border-t border-border-base px-6 py-2.5 text-center text-[11px] text-text-disabled tracking-wide">
+      <span className="text-text-muted">{appName}</span>
+      {version && <> &middot; v{version}</>}
+      <span className="mx-2 text-text-disabled">—</span>
+      brought to you by{" "}
+      <span className="text-text-secondary font-medium">Lazy Lion Consulting</span>
+    </footer>
+  );
+}
+
+function LauncherPane({
   title,
   services,
 }: {
   title: string;
   services: ServiceDefinition[];
 }) {
-  if (services.length === 0) return null;
   return (
-    <section className="mb-10 last:mb-0">
-      <p className="text-xs tracking-widest uppercase text-text-muted mb-5 text-center">
+    <section className="flex-1 min-h-0 flex flex-col">
+      <p className="shrink-0 text-xs tracking-widest uppercase text-text-muted text-center py-4">
         {title}
       </p>
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-4">
-        {services.map((s) => (
-          <ServiceCard key={s.id} service={s} />
-        ))}
+      <div className="flex-1 min-h-0 overflow-y-auto px-8 pb-6">
+        <div className="max-w-6xl mx-auto">
+          {/* auto-fill keeps cells a uniform size — auto-fit would stretch the
+              last row's items to fill empty space, making them larger than
+              cells in fuller rows or in the other pane. */}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-4">
+            {services.map((s) => (
+              <ServiceCard key={s.id} service={s} />
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   );

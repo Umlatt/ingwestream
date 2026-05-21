@@ -1,6 +1,6 @@
 [package]
 name = "ingwestream"
-version = "0.1.0"
+version = "1.0.0"
 description = "Ingwe — ultra-lightweight cross-platform streaming service consolidator"
 authors = ["Lazy Lion Consulting"]
 edition = "2021"

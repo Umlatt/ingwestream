@@ -4,6 +4,40 @@ import { cn } from "@/lib/utils";
 import { useServicesStore } from "@/store/services";
 import { SERVICES, type ServiceDefinition } from "@/services/serviceRegistry";
 
+type ServiceCategory = NonNullable<ServiceDefinition["category"]>;
+
+// ── Category picker (Video / Music) ───────────────────────────────────────────
+
+function CategoryPicker({
+  value,
+  onChange,
+}: {
+  value: ServiceCategory;
+  onChange: (next: ServiceCategory) => void;
+}) {
+  const opt = (cat: ServiceCategory, label: string) => (
+    <button
+      key={cat}
+      type="button"
+      onClick={() => onChange(cat)}
+      className={cn(
+        "px-3 py-1 rounded-md text-xs font-medium transition-colors duration-150",
+        value === cat
+          ? "bg-accent text-white"
+          : "text-text-muted hover:text-text-primary hover:bg-bg-overlay",
+      )}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div className="shrink-0 flex items-center gap-0.5 bg-bg-elevated border border-border-base rounded-lg p-0.5">
+      {opt("video", "Video")}
+      {opt("music", "Music")}
+    </div>
+  );
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function faviconFromUrl(raw: string): string {
@@ -175,17 +209,21 @@ function CustomServiceCard({
 function EditPanel({
   editUrl,
   editLabel,
+  editCategory,
   faviconPreview,
   onUrlChange,
   onLabelChange,
+  onCategoryChange,
   onSave,
   onCancel,
 }: {
   editUrl: string;
   editLabel: string;
+  editCategory: ServiceCategory;
   faviconPreview: string;
   onUrlChange: (v: string) => void;
   onLabelChange: (v: string) => void;
+  onCategoryChange: (v: ServiceCategory) => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
@@ -215,6 +253,7 @@ function EditPanel({
         placeholder="Label"
         className="w-28 shrink-0 bg-bg-overlay border border-border-base rounded-lg px-3 py-1.5 text-sm text-text-primary placeholder:text-text-disabled outline-none focus:border-accent transition-colors duration-150"
       />
+      <CategoryPicker value={editCategory} onChange={onCategoryChange} />
       <button
         onClick={onSave}
         className="shrink-0 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors duration-150"
@@ -246,9 +285,11 @@ export function ServiceWizard() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editUrl, setEditUrl] = useState("");
   const [editLabel, setEditLabel] = useState("");
+  const [editCategory, setEditCategory] = useState<ServiceCategory>("video");
 
   const [customUrl, setCustomUrl] = useState("");
   const [customLabel, setCustomLabel] = useState("");
+  const [customCategory, setCustomCategory] = useState<ServiceCategory>("video");
   const [urlError, setUrlError] = useState("");
 
   const totalSelected = selectedIds.size + selectedCustomIds.size;
@@ -283,12 +324,14 @@ export function ServiceWizard() {
     setEditingId(svc.id);
     setEditUrl(svc.url);
     setEditLabel(svc.label);
+    setEditCategory(svc.category === "music" ? "music" : "video");
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditUrl("");
     setEditLabel("");
+    setEditCategory("video");
   };
 
   const saveEdit = () => {
@@ -307,6 +350,7 @@ export function ServiceWizard() {
                 url: raw,
                 label: label.charAt(0).toUpperCase() + label.slice(1),
                 faviconUrl: `https://icons.duckduckgo.com/ip3/${hostname}.ico`,
+                category: editCategory,
               }
             : s,
         ),
@@ -331,6 +375,7 @@ export function ServiceWizard() {
         url: raw,
         faviconUrl: `https://icons.duckduckgo.com/ip3/${hostname}.ico`,
         isCustom: true,
+        category: customCategory,
       };
     } catch {
       return null;
@@ -348,6 +393,7 @@ export function ServiceWizard() {
     setSelectedCustomIds((prev) => new Set([...prev, svc.id]));
     setCustomUrl("");
     setCustomLabel("");
+    setCustomCategory("video");
   };
 
   const save = () => {
@@ -441,9 +487,11 @@ export function ServiceWizard() {
                 <EditPanel
                   editUrl={editUrl}
                   editLabel={editLabel}
+                  editCategory={editCategory}
                   faviconPreview={editFaviconPreview}
                   onUrlChange={setEditUrl}
                   onLabelChange={setEditLabel}
+                  onCategoryChange={setEditCategory}
                   onSave={saveEdit}
                   onCancel={cancelEdit}
                 />
@@ -452,7 +500,7 @@ export function ServiceWizard() {
           )}
 
           {/* Add new custom service */}
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <input
               type="url"
               value={customUrl}
@@ -473,6 +521,7 @@ export function ServiceWizard() {
               placeholder="Label"
               className="w-28 shrink-0 bg-bg-elevated border border-border-base rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-disabled outline-none focus:border-accent transition-colors duration-150"
             />
+            <CategoryPicker value={customCategory} onChange={setCustomCategory} />
             <button
               onClick={addCustom}
               className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-bg-elevated hover:bg-bg-overlay border border-border-base rounded-lg text-sm text-text-secondary hover:text-text-primary transition-colors duration-150"
