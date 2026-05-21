@@ -1,8 +1,16 @@
-import { useEffect, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useRef, useState } from "react";
+import { getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { LayoutGrid, Minus, X, Expand, Shrink, Square, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useServicesStore, useActiveServices } from "@/store/services";
+
+type SavedBounds = {
+  position: PhysicalPosition;
+  size: PhysicalSize;
+};
+
+type WorkArea = { x: number; y: number; width: number; height: number };
 
 export function TitleBar({ forceShow = false }: { forceShow?: boolean }) {
   const win = getCurrentWindow();
@@ -13,21 +21,36 @@ export function TitleBar({ forceShow = false }: { forceShow?: boolean }) {
   const isFullscreen = useServicesStore((s) => s.isFullscreen);
   const services = useActiveServices();
 
-  // Track maximize state so the button icon reflects what tapping it will do.
-  // The OS fires `tauri://resize` whenever the window changes size — including
-  // maximize/restore — so we re-query on each resize.
+  // Soft-maximise: instead of WS_MAXIMIZE (which corrupts the Windows taskbar
+  // rendering on frameless windows, tauri#7103), we resize the window to fit
+  // the monitor's work area ourselves. The previous bounds are stashed so the
+  // restore action can put the window back exactly where it was.
   const [isMaximized, setIsMaximized] = useState(false);
-  useEffect(() => {
-    let active = true;
-    win.isMaximized().then((v) => active && setIsMaximized(v)).catch(() => {});
-    const unlistenP = win.onResized(() => {
-      win.isMaximized().then((v) => active && setIsMaximized(v)).catch(() => {});
-    });
-    return () => {
-      active = false;
-      unlistenP.then((fn) => fn()).catch(() => {});
-    };
-  }, [win]);
+  const savedBoundsRef = useRef<SavedBounds | null>(null);
+
+  const toggleMaximize = async () => {
+    try {
+      if (isMaximized && savedBoundsRef.current) {
+        const { position, size } = savedBoundsRef.current;
+        await win.setPosition(position);
+        await win.setSize(size);
+        savedBoundsRef.current = null;
+        setIsMaximized(false);
+        return;
+      }
+      const [position, size] = await Promise.all([
+        win.outerPosition(),
+        win.outerSize(),
+      ]);
+      savedBoundsRef.current = { position, size };
+      const wa = await invoke<WorkArea>("get_work_area");
+      await win.setPosition(new PhysicalPosition(wa.x, wa.y));
+      await win.setSize(new PhysicalSize(wa.width, wa.height));
+      setIsMaximized(true);
+    } catch (e) {
+      console.error("[ingwe] toggleMaximize failed:", e);
+    }
+  };
 
   const activeLabel = activeId
     ? (services.find((s) => s.id === activeId)?.label ?? null)
@@ -80,7 +103,7 @@ export function TitleBar({ forceShow = false }: { forceShow?: boolean }) {
           <Minus className="size-3.5" />
         </button>
         <button
-          onClick={() => win.toggleMaximize()}
+          onClick={toggleMaximize}
           className="h-full px-4 flex items-center text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors duration-150"
           aria-label={isMaximized ? "Restore" : "Maximise"}
         >

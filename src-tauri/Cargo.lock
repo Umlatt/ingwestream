@@ -1954,6 +1954,7 @@ dependencies = [
  "tauri-plugin-window-state",
  "thiserror 2.0.18",
  "tokio",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

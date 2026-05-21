@@ -34,3 +34,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["time"] }
 
+# Windows-only: used to query the current monitor's *work area* (screen minus
+# taskbar). Tauri's monitor API only exposes full screen dimensions, but
+# maximising a frameless window via WS_MAXIMIZE confuses the Windows taskbar
+# compositor (see tauri#7103) so we instead resize the window to fit the work
+# area ourselves, bypassing the WS_MAXIMIZE state entirely.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
+

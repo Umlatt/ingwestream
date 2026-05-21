@@ -57,6 +57,7 @@ pub fn run() {
             commands::update_window_icon,
             commands::reset_window_icon,
             commands::show_titlebar_overlay,
+            commands::get_work_area,
         ])
         .setup(|app| {
             tray::build_tray(&app.handle())?;

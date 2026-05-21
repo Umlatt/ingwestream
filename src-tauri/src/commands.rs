@@ -381,6 +381,64 @@ pub fn reset_window_icon(app: AppHandle) -> Result<(), AppError> {
     Ok(())
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct WorkArea {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Return the *work area* (screen minus taskbar/dock) of the monitor that the
+/// main window is currently on, in physical pixels. The frontend uses this to
+/// implement a "soft maximise" that resizes the window to fit the work area
+/// without setting WS_MAXIMIZE — avoiding the Windows taskbar compositor glitch
+/// that draws a flat band where the taskbar should render.
+#[tauri::command]
+pub fn get_work_area(app: AppHandle) -> Result<WorkArea, AppError> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| AppError::Tauri("main window not found".into()))?;
+
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::HWND;
+        use windows_sys::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        };
+
+        if let Ok(hwnd) = main.hwnd() {
+            let hwnd_raw = hwnd.0 as HWND;
+            let monitor = unsafe { MonitorFromWindow(hwnd_raw, MONITOR_DEFAULTTONEAREST) };
+            let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
+            info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+            if unsafe { GetMonitorInfoW(monitor, &mut info) } != 0 {
+                return Ok(WorkArea {
+                    x: info.rcWork.left,
+                    y: info.rcWork.top,
+                    width: (info.rcWork.right - info.rcWork.left) as u32,
+                    height: (info.rcWork.bottom - info.rcWork.top) as u32,
+                });
+            }
+        }
+    }
+
+    // Fallback: full monitor bounds. On Linux/macOS the WS_MAXIMIZE glitch
+    // doesn't exist anyway, so soft-maximise covering the whole screen is fine
+    // since the compositor handles the dock/panel correctly via OS maximise.
+    let monitor = main
+        .current_monitor()?
+        .ok_or_else(|| AppError::Tauri("no monitor for main window".into()))?;
+    let size = monitor.size();
+    let pos = monitor.position();
+    Ok(WorkArea {
+        x: pos.x,
+        y: pos.y,
+        width: size.width,
+        height: size.height,
+    })
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 /// Unified resize: positions the service view based on all overlay flags.
