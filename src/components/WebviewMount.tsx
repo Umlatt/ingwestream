@@ -78,24 +78,24 @@ function ServicePause({ activeId }: { activeId: string }) {
   );
 }
 
+// Mirrors ServicePause's layout so picking a new service from the flyout doesn't
+// jump from the small "Paused" card to a different big-spinner UI — the visual
+// stays in the same shape, just with the new service's favicon/label and a
+// pulsing "Loading" caption. The title bar's animated bar provides the primary
+// loading animation; the pulse covers the fullscreen case where the bar is hidden.
 function ServiceLoadingOverlay({ activeId }: { activeId: string }) {
   const services = useActiveServices();
   const service = services.find((s) => s.id === activeId);
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-bg-base">
+    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-bg-base">
       {service && (
         <>
-          {/* Fixed-size container so the spinner ring positions consistently
-              regardless of the favicon's natural pixel size inside it. */}
-          <div className="relative flex items-center justify-center size-12">
-            <ServiceFavicon src={service.faviconUrl} alt={service.label} size="lg" />
-            <div className="absolute -inset-3 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
-          </div>
+          <ServiceFavicon src={service.faviconUrl} alt={service.label} />
           <p className="text-sm text-text-secondary">{service.label}</p>
         </>
       )}
-      <p className="text-xs text-text-disabled tracking-widest uppercase">
+      <p className="text-xs text-text-disabled tracking-widest uppercase animate-pulse">
         Loading
       </p>
     </div>
