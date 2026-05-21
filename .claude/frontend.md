@@ -149,10 +149,39 @@ Props: `forceShow?: boolean` (used for the overlay copy in fullscreen).
 - `data-tauri-drag-region` on outer div and title `<span>`
 - Collapses to `h-0 overflow-hidden opacity-0` when fullscreen and not `forceShow`
 - Left: `<LayoutGrid>` button (toggleFlyout) + active service label or "IngweStream"
-- Right: cinema mode toggle (Expand/Shrink) → `toggleFullscreen()` | Minimize | Close
+- Right: cinema mode toggle (Expand/Shrink) → `toggleFullscreen()` | Minimise |
+  **Soft-maximise (Square / mirrored Copy)** | Close
 - Close button uses `hover:bg-danger`
-- Loading bar: `absolute bottom-0 left-0 right-0 h-[2px]` with `animate-loading-bar`
-- No Maximize button — window is `maximizable: false`
+- Loading bar: `absolute bottom-0 left-0 right-0 h-[2px]` with `animate-loading-bar`,
+  driven by `useServicesStore.isLoading`
+
+**Soft maximise** (avoiding the Windows frameless-WS_MAXIMIZE taskbar glitch — see
+`.claude/windows-webview2.md`):
+
+```tsx
+const savedBoundsRef = useRef<SavedBounds | null>(null);
+const [isMaximized, setIsMaximized] = useState(false);
+
+const toggleMaximize = async () => {
+  if (isMaximized && savedBoundsRef.current) {
+    const { position, size } = savedBoundsRef.current;
+    await win.setPosition(position);
+    await win.setSize(size);
+    savedBoundsRef.current = null;
+    setIsMaximized(false);
+    return;
+  }
+  const [position, size] = await Promise.all([win.outerPosition(), win.outerSize()]);
+  savedBoundsRef.current = { position, size };
+  const wa = await invoke<WorkArea>("get_work_area");
+  await win.setPosition(new PhysicalPosition(wa.x, wa.y));
+  await win.setSize(new PhysicalSize(wa.width, wa.height));
+  setIsMaximized(true);
+};
+```
+
+The OS never enters WS_MAXIMIZE; maximise state is tracked locally in the component.
+`tauri.conf.json` has `"maximizable": false` so Win+Up and drag-snap can't bypass this.
 
 ### `Sidebar.tsx`
 
@@ -167,30 +196,72 @@ the webview is hidden.
 - Settings button at the bottom calls `openWizard()` (which also handles hiding the service view).
 - `ServiceItem` button: `w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm`
 - Active item: `bg-bg-overlay text-text-primary`
+- **Right-click** any `ServiceItem` → `resetService(service)` which invokes the
+  `reset_service` Rust command. Always navigates the webview to the service's default URL
+  even when it's already active. The `title` attribute hints at this affordance.
 
 ### `WebviewMount.tsx`
 
 Shows different content depending on state:
 
-| Condition                 | Renders                                                                           |
-| ------------------------- | --------------------------------------------------------------------------------- |
-| `!activeId`               | `ServiceLauncher` — grid of all enabled services                                  |
-| `activeId && flyoutOpen`  | `ServicePause` — favicon + name + "Paused" label                                  |
-| `activeId && !flyoutOpen` | `div#webview-mount-{id}` — invisible anchor; native webview renders above         |
+| Condition                                  | Renders                                                                              |
+| ------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `!activeId`                                | `ServiceLauncher` — logo hero + two equal-height service panes + version footer      |
+| `activeId && flyoutOpen`                   | `ServicePause` — favicon + name + "Paused" label                                     |
+| `activeId && !flyoutOpen`                  | `div#webview-mount-{id}` (invisible anchor; native webview renders above)            |
+| `activeId && !flyoutOpen && isLoading`     | ↑ + `ServiceLoadingOverlay` z-20 — favicon + name + pulsing "Loading" caption        |
 
 Root div is `absolute inset-0 bg-bg-base` — fills the `relative flex-1` parent in App.tsx.
 
-`ServiceLauncher` groups services into Video / Music / Other sections using
-`grid-cols-[repeat(auto-fill,minmax(80px,1fr))]` with square `aspect-square` cards.
+#### `ServiceLauncher`
+
+Top-down flex column: `LauncherHeader` → `LauncherPane "Video"` → `LauncherPane "Music"`
+→ `LauncherFooter`. **No divider between panes** — the section title's hairlines do all
+the visual separation.
+
+- `LauncherHeader` — `size-14` logo from `./media/logo.png` (imported via Vite relative
+  path; picked up by `vite/client`'s `*.png` types) with an accent-tinted drop shadow,
+  app name from `getName()`, and a "Choose a service to begin" tagline.
+- `LauncherPane` — `flex-1 min-h-0 flex flex-col`, with a hairline-framed section title
+  on top and a scroll container below. The scroll container's child uses `min-h-full
+  flex items-center justify-center` so the icons centre **vertically and horizontally**
+  when they fit, and the outer `overflow-y-auto` takes over when they don't.
+- `ServiceCard` — fixed `size-24` button containing just the favicon. No background, no
+  border, no label — `aria-label` and `title` provide the service name. Hover scales the
+  card to `1.1`, press shrinks to `0.95`.
+- Favicons render via `w-auto h-auto max-w-10 max-h-10` so a small native favicon
+  (16/32 px) is never upscaled into a blurry larger size; larger favicons cap at 40 px.
+- `LauncherFooter` — version pulled from `getVersion()`, plus the
+  *brought to you by Lazy Lion Consulting* credit.
+
+#### `ServiceLoadingOverlay`
+
+Mirrors `ServicePause`'s layout (small inline favicon, label, lowercase caption) so
+switching services from the flyout transitions smoothly between paused → loading
+visuals instead of jumping to a different overlay style. The caption pulses
+(`animate-pulse`) and the title bar's loading bar provides the primary indicator.
 
 ### `ServiceWizard.tsx`
 
 Full-screen modal overlay (`fixed inset-0 z-50 bg-bg-base`). Opens on first run or
 when the user clicks Settings in the sidebar.
 
-- Checkboxes for all predefined services (grouped Video / Music)
-- Custom service list with delete buttons
-- Add custom service form: URL input → derive domain → show favicon preview → add
+- `WizardHeader` mirrors `LauncherHeader` exactly — same `size-14` logo with accent
+  drop-shadow, same app-name typography, "Choose which services to keep, or add your
+  own" tagline. Close X is absolutely positioned in the top-right so the hero stays
+  centred.
+- Refuses to close (no X rendered) until at least one service is selected.
+- `SectionDivider` — hairline-framed section title matching `LauncherPane`'s style.
+  Used for Video streaming / Music streaming / Custom services.
+- `ServiceCard` (built-in) — selectable card with check badge in the corner when
+  selected. Grid: `grid-cols-[repeat(auto-fill,minmax(88px,1fr))]`.
+- `CustomServiceCard` — same selectable card + hover toolbar with Edit / Delete.
+- `CategoryPicker` — two-segment Video / Music toggle in both the add form and the
+  inline edit panel. Writes to `ServiceDefinition.category` so new services land in
+  the correct launcher pane.
+- Add custom service form: URL input → derive domain → favicon preview → add. Pressing
+  Enter in any input also submits.
+- Footer: right-aligned compact "Continue with N service(s)" button (not full-width).
 - Save calls `saveServiceConfig(selectedIds, customList)` which persists to `ingwe.json`
 
 ### `ResizeBorder.tsx`
@@ -226,13 +297,33 @@ const fav = (domain: string) =>
   `https://icons.duckduckgo.com/ip3/${domain}.ico`;
 ```
 
-Render pattern with Globe fallback:
+### Render variants
+
+`WebviewMount.tsx` exposes a `ServiceFavicon` with three size variants:
+
+| Variant | Sizing                            | Used for                                      |
+| ------- | --------------------------------- | --------------------------------------------- |
+| `sm`    | `size-5` fixed (20 px)            | Inline / pause / loading overlay              |
+| `lg`    | `w-auto h-auto max-w-10 max-h-10` | Loading overlay (wrapped in a `size-12` ring) |
+| `xl`    | `w-auto h-auto max-w-10 max-h-10` | Launcher cards                                |
+
+The `lg` / `xl` variants intentionally use `w-auto h-auto` so a 16/32 px favicon
+renders at its **native pixel size**, never upscaled into a blurry larger version. The
+`max-w-10 max-h-10` cap downscales larger favicons to a consistent maximum.
+
+The `Globe` fallback uses an explicit `size-5` or `size-8` because SVGs have no
+natural pixel size and would collapse with `w-auto h-auto`:
 
 ```tsx
-function ServiceFavicon({ src, alt }) {
+function ServiceFavicon({ src, alt, size }) {
   const [failed, setFailed] = useState(false);
-  if (failed) return <Globe className="size-4 shrink-0 text-text-muted" />;
-  return <img src={src} alt={alt} className="size-4 shrink-0 rounded-sm"
+  const isInline = size === "sm";
+  const imgCls = isInline
+    ? "size-5 shrink-0 rounded-sm"
+    : "w-auto h-auto max-w-10 max-h-10 rounded-md";
+  const fallbackCls = isInline ? "size-5 text-text-muted" : "size-8 text-text-muted";
+  if (failed) return <Globe className={fallbackCls} />;
+  return <img src={src} alt={alt} className={imgCls}
               onError={() => setFailed(true)} />;
 }
 ```
@@ -245,14 +336,17 @@ function ServiceFavicon({ src, alt }) {
 interface ServicesState {
   activeId:        string | null;
   flyoutOpen:      boolean;
-  isLoading:       boolean;       // true while open_service is in-flight
+  isLoading:       boolean;       // true between openService dispatch and
+                                  // service-load-finished event
   isFullscreen:    boolean;       // mirrors Rust state via fullscreen-changed event
   wizardOpen:      boolean;
   enabledIds:      string[];      // persisted; defaults to all SERVICES ids
-  customServices:  ServiceDefinition[];
+  customServices:  ServiceDefinition[];  // each carries category: "video" | "music"
 
   openService(service):   Promise<void>;
+  resetService(service):  Promise<void>;  // right-click → force-navigate to default URL
   closeService():         Promise<void>;
+  setLoading(value):      void;   // App.tsx event listener clears isLoading via this
   openFlyout():           void;   // idempotent; hides service view if active
   toggleFlyout():         void;
   closeFlyout():          void;   // shows service view if active
@@ -264,23 +358,28 @@ interface ServicesState {
   initFromStore():        Promise<void>;           // called once in App mount useEffect
 }
 
-// Derived list — always prefer this over reading enabledIds directly
+// Derived list — alphabetically merges built-in and custom services by label.
+// Always prefer this over reading enabledIds / customServices directly.
 export function useActiveServices(): ServiceDefinition[]
 ```
 
-**`isLoading` guard** — always preserve this in `openService`:
+**`isLoading` lifecycle** — `openService` sets `isLoading: true` synchronously (skipped
+for same-service reopen). It is **cleared** by the `service-load-finished` Tauri event
+listener in `App.tsx` calling `setLoading(false)`, *not* in the `openService` finally
+block, so the loading overlay stays visible until the webview's `on_page_load(Finished)`
+fires:
 
 ```ts
 openService: async (service) => {
-  if (get().isLoading) return;   // prevents double-navigation and UI flicker
-  set({ activeId: service.id, flyoutOpen: false, isLoading: true });
+  if (get().isLoading) return;
+  const sameService = get().activeId === service.id;
+  set({ activeId: service.id, flyoutOpen: false, isLoading: !sameService });
   try {
     await invoke("open_service", { serviceId: service.id, url: service.url });
     invoke("update_window_icon", { faviconUrl: service.faviconUrl }).catch(() => {});
   } catch (e) {
     console.error("[ingwe] open_service failed:", e);
-  } finally {
-    set({ isLoading: false });
+    set({ isLoading: false });   // failure path only — success is cleared by event
   }
 },
 ```

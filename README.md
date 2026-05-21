@@ -9,7 +9,7 @@
 *One window. Every stream. Zero compromise.*
 
 [![Build](https://img.shields.io/github/actions/workflow/status/lazy-lion-consulting/ingwestream/build.yml?branch=main&style=flat-square&logo=github&label=build)](https://github.com/lazy-lion-consulting/ingwestream/actions)
-[![Version](https://img.shields.io/badge/version-0.1.0-blue?style=flat-square)](https://github.com/lazy-lion-consulting/ingwestream/releases)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue?style=flat-square)](https://github.com/lazy-lion-consulting/ingwestream/releases)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-24C8DB?style=flat-square&logo=tauri)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Rust-2021-orange?style=flat-square&logo=rust)](https://www.rust-lang.org)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)](https://react.dev)
@@ -32,18 +32,23 @@ Built on **Tauri v2** (Rust + OS native webviews), Ingwe is not an Electron app.
 
 ## Features
 
-| | Feature | Details |
-|---|---|---|
-| 🪟 | **Single-window consolidation** | All streaming services in one frameless, OLED-dark window |
-| 🦀 | **Native performance** | Tauri v2 + Rust core; no Chromium bundled |
-| 💤 | **Aggressive throttling** | Background webviews freeze JS timers, mute audio, halt rendering |
-| 🎵 | **Global media keys** | OS media keys (SMTC/MPRIS) route directly to the active webview |
-| 🔒 | **Widevine DRM** | Full L1/L3 DRM support via platform-native webview engines |
-| 🌑 | **Strict OLED dark mode** | OLED-black theme injected into every service webview |
-| 📺 | **HLS / DASH / WebRTC** | Full HTML5 adaptive streaming stack |
-| 🗂️ | **System tray** | Playback controls and quick-switch from the tray icon |
-| 💾 | **Persistent sessions** | Each service keeps its own isolated login session (cookies, localStorage) |
-| 🌍 | **Cross-platform** | Linux (WebKitGTK), Windows (WebView2), macOS (WKWebView) |
+|     | Feature                          | Details                                                                                              |
+| --- | -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| 🪟  | **Single-window consolidation**  | 39 built-in streaming services in one frameless, OLED-dark window                                    |
+| 🎨  | **Modern startup screen**        | Logo hero, two equal-height panes (Video / Music), centred bare-icon services with native pixel size |
+| ➕   | **Custom services**              | Add any URL with a Video / Music category picker; alphabetic merge with the built-ins                |
+| 🔄  | **Right-click reset**            | Right-click a service in the flyout to navigate back to its default URL                              |
+| 🦀  | **Native performance**           | Tauri v2 + Rust core; no Chromium bundled                                                            |
+| 🎬  | **Cinema mode**                  | True OS-level fullscreen via `set_fullscreen`; edge-hover reveals title bar + sidebar                |
+| 🖥️  | **Soft maximise**                | Custom maximise resizes to the monitor's work area without WS_MAXIMIZE (fixes tauri#7103)            |
+| 🎵  | **Global media keys**            | OS media keys hooked into `navigator.mediaSession.setActionHandler` — works on every modern site     |
+| 🔒  | **Widevine DRM**                 | Full L1/L3 DRM support via platform-native webview engines                                           |
+| 🌑  | **Strict OLED dark mode**        | OLED-black theme injected into every service webview, including `matchMedia` override                |
+| 📺  | **HLS / DASH / WebRTC**          | Full HTML5 adaptive streaming stack                                                                  |
+| 🔔  | **Notification bridge**          | In-webview `Notification` API routed to native OS notifications                                      |
+| 🗂️  | **System tray**                  | Playback controls and quick-switch from the tray icon                                                |
+| 💾  | **Persistent sessions**          | Each service keeps its own isolated login session (cookies, localStorage)                            |
+| 🌍  | **Cross-platform**               | Linux (WebKitGTK), Windows (WebView2), macOS (WKWebView)                                             |
 
 ---
 

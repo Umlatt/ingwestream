@@ -31,7 +31,10 @@ system tray, media keys, window chrome, fullscreen mode, service switching, and 
 ```text
 ingwestream/
 ├── CLAUDE.md                      ← you are here
-├── build-all.sh                   ← cross-platform release build script
+├── CHANGELOG.md                   ← Versioned feature log (Keep a Changelog format)
+├── README.md                      ← Public-facing project description
+├── build-all.sh                   ← Cross-platform release build script
+├── media/                         ← Branding assets (logo.png, banner.png, favicon.png)
 ├── .claude/
 │   ├── frontend.md                ← UI system, component patterns, Tailwind tokens
 │   ├── backend.md                 ← Rust commands, state, IPC, tray, shortcuts
@@ -41,27 +44,27 @@ ingwestream/
 │   ├── App.tsx                    ← Root layout: ResizeBorder + TitleBar + Sidebar + WebviewMount
 │   ├── index.css                  ← Tailwind v4 @theme, custom tokens, animations
 │   ├── components/
-│   │   ├── TitleBar.tsx           ← Drag region, service label, cinema mode, window controls
-│   │   ├── Sidebar.tsx            ← Fly-out panel, service list, settings button, backdrop
-│   │   ├── WebviewMount.tsx       ← ServiceLauncher / ServicePause / native webview anchor
-│   │   ├── ServiceWizard.tsx      ← Full-screen service picker, custom service support
+│   │   ├── TitleBar.tsx           ← Drag region, service label, cinema, min, soft-max, close
+│   │   ├── Sidebar.tsx            ← Fly-out panel, service list (right-click resets), settings
+│   │   ├── WebviewMount.tsx       ← LauncherHeader + LauncherPanes + LauncherFooter / Pause / Loading
+│   │   ├── ServiceWizard.tsx      ← WizardHeader + category picker + hairline section dividers
 │   │   └── ResizeBorder.tsx       ← Custom resize handles (8 fixed-position hit areas)
 │   ├── store/
-│   │   └── services.ts            ← Zustand store + useActiveServices() helper
+│   │   └── services.ts            ← Zustand store + useActiveServices() (alphabetic merge)
 │   ├── services/
 │   │   └── serviceRegistry.ts     ← SERVICES array: id, label, url, faviconUrl, category
 │   ├── lib/utils.ts               ← cn() = clsx + twMerge
 │   └── assets/
 ├── src-tauri/
 │   ├── tauri.conf.json            ← Window config, CSP, bundle
-│   ├── Cargo.toml                 ← Dependencies
+│   ├── Cargo.toml                 ← Dependencies (incl. windows-sys for Windows target)
 │   ├── capabilities/default.json  ← IPC permissions
 │   └── src/
 │       ├── lib.rs                 ← Builder: plugins, URI schemes, state, handler, setup, events
 │       ├── main.rs                ← Binary entry (calls lib::run)
-│       ├── commands.rs            ← All IPC handlers + resize helpers + media dispatch
+│       ├── commands.rs            ← All IPC handlers + resize helpers + media dispatch + work area
 │       ├── state.rs               ← AppState struct
-│       ├── scripts.rs             ← WEBVIEW_DARK_INIT JS constant
+│       ├── scripts.rs             ← WEBVIEW_DARK_INIT JS (MediaSession hook, ESC, dark theme)
 │       ├── tray.rs                ← System tray: show/prev/play/next/quit
 │       └── shortcuts.rs           ← Global media key + F11 registration
 └── .github/
@@ -114,56 +117,98 @@ Dev server: `http://localhost:1420`   HMR websocket: `ws://localhost:1421`
 ┌──────────────────────────────────────────────────────────────────┐
 │  OS Window  (decorations=false, resizable, 1200×800 default)      │
 │  ┌────────────────────────────────────────────────────────────┐   │
-│  │  TitleBar  h=32px  [drag-region]   [cinema] [min] [close]  │   │
+│  │  TitleBar  h=32  [drag]  [cinema][min][soft-max][close]    │   │
 │  ├───────────────────┬────────────────────────────────────────┤   │
 │  │ Sidebar fly-out   │  WebviewMount                          │   │
 │  │ (fixed, z-30)     │  (absolute inset-0)                    │   │
-│  │ starts at top-8   │                                        │   │
-│  │ in normal mode    │  ┌──────────────────────────────────┐  │   │
-│  │                   │  │  Child Webview "service-view"    │  │   │
-│  │                   │  │  (native WebView2/WKWebView)     │  │   │
-│  │                   │  │  pos: (0,32) normal              │  │   │
-│  │                   │  │  pos: (0,0)  fullscreen          │  │   │
+│  │ starts at top-8   │  ┌──────────────────────────────────┐  │   │
+│  │ in normal mode    │  │  No service active:               │  │   │
+│  │ right-click an    │  │    LauncherHeader (logo + name)   │  │   │
+│  │ item → reset URL  │  │    LauncherPane "Video"           │  │   │
+│  │                   │  │    LauncherPane "Music"           │  │   │
+│  │                   │  │    LauncherFooter (version)       │  │   │
+│  │                   │  ├──────────────────────────────────┤  │   │
+│  │                   │  │  Service active:                  │  │   │
+│  │                   │  │    Child Webview "service-view"   │  │   │
+│  │                   │  │    (native WebView2/WKWebView)    │  │   │
+│  │                   │  │    pos: (0,32) normal             │  │   │
+│  │                   │  │    pos: (0,0)  fullscreen         │  │   │
+│  │                   │  │   + loading / pause overlay z-20  │  │   │
 │  └───────────────────┴──┴──────────────────────────────────┴──┘   │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 The child webview is a Tauri `Webview` added via `Window::add_child()` (requires the
-`unstable` feature). It renders natively above the React tree — `WebviewMount` shows a
-launcher grid when no service is active, or a "Paused" placeholder when the flyout is open
-over an active service.
+`unstable` feature). It renders natively above the React tree — `WebviewMount` shows the
+`ServiceLauncher` (logo header + two equal-height service panes + footer) when no service
+is active, a `ServicePause` placeholder when the flyout is open, or a pulsing
+`ServiceLoadingOverlay` matching the pause layout while a new service is loading.
 
 ### Fullscreen (cinema) mode
 
-`toggle_fullscreen_layout` emits `fullscreen-changed`. React collapses the titlebar to
-`h-0`. The Rust `apply_resize_all` repositions the service webview to `(0, 0)` filling the
-full window. Hovering the top edge flies in an overlay titlebar; hovering the left edge
-flies in the sidebar. F11 global shortcut toggles fullscreen.
+`toggle_fullscreen_layout` flips internal `is_fullscreen` state, calls
+`window.set_fullscreen(true/false)` for **true OS-level fullscreen** (covers the taskbar
+via the compositor, not by painting over it), and emits `fullscreen-changed`. React
+collapses the titlebar to `h-0`. The Rust `apply_resize_all` repositions the service
+webview to `(0, 0)` filling the full window. Hovering the top edge flies in an overlay
+titlebar; hovering the left edge flies in the sidebar. F11 global shortcut and ESC toggle
+fullscreen — ESC works even when the child webview has focus, via a keydown listener in
+`WEBVIEW_DARK_INIT` that pings `ingwe-ctrl://?a=escape`.
+
+### Soft maximise
+
+The maximise button does **not** call `window.toggleMaximize()` — putting a frameless
+window into WS_MAXIMIZE state confuses the Windows taskbar compositor and causes it to
+render as a flat band (tauri#7103). Instead, `TitleBar.tsx`:
+
+1. Saves the current `outerPosition` + `outerSize` in a ref.
+2. Invokes `get_work_area` to fetch the current monitor's work area (Win32
+   `GetMonitorInfoW` on Windows, full monitor size as fallback elsewhere).
+3. Calls `setPosition` + `setSize` to fit the work area.
+
+Restore pops the saved bounds back. The OS never enters WS_MAXIMIZE, so the taskbar
+renders normally. `tauri.conf.json` has `"maximizable": false` to block OS-level maximise
+shortcuts (Win+Up, drag-snap) from triggering the glitch.
 
 ---
 
 ## IPC surface (frontend → backend)
 
-| Command                    | Args                                   | Returns | Notes                                             |
-| -------------------------- | -------------------------------------- | ------- | ------------------------------------------------- |
-| `open_service`             | `serviceId: string, url: string`       | `void`  | Navigates child webview, shows it                 |
-| `close_service`            | —                                      | `void`  | Hides webview; retained for reuse                 |
-| `show_service_view`        | —                                      | `void`  | Shows child (flyout / wizard closed)              |
-| `hide_service_view`        | —                                      | `void`  | Hides child (flyout / wizard open)                |
-| `toggle_fullscreen_layout` | —                                      | `void`  | Toggles cinema mode; emits `fullscreen-changed`   |
-| `apply_fullscreen_resize`  | —                                      | `void`  | Re-applies resize after React re-render           |
-| `show_titlebar_overlay`    | `visible: boolean`                     | `void`  | Shows/hides overlay titlebar in fullscreen        |
-| `update_window_icon`       | `faviconUrl: string`                   | `void`  | Fetches favicon bytes, sets taskbar icon          |
-| `reset_window_icon`        | —                                      | `void`  | Restores default app icon                         |
+| Command                    | Args                              | Returns      | Notes                                                                |
+| -------------------------- | --------------------------------- | ------------ | -------------------------------------------------------------------- |
+| `open_service`             | `serviceId: string, url: string`  | `void`       | Navigates child webview; skips re-nav if `serviceId` already active  |
+| `reset_service`            | `serviceId: string, url: string`  | `void`       | **Always** navigates — bypasses same-service check (right-click)     |
+| `close_service`            | —                                 | `void`       | Hides webview; retained for reuse                                    |
+| `show_service_view`        | —                                 | `void`       | Shows child (flyout / wizard closed)                                 |
+| `hide_service_view`        | —                                 | `void`       | Hides child (flyout / wizard open)                                   |
+| `toggle_fullscreen_layout` | —                                 | `void`       | Toggles OS fullscreen + emits `fullscreen-changed`                   |
+| `apply_fullscreen_resize`  | —                                 | `void`       | Re-applies resize after React re-render                              |
+| `show_titlebar_overlay`    | `visible: boolean`                | `void`       | Shows/hides overlay titlebar in fullscreen                           |
+| `update_window_icon`       | `faviconUrl: string`              | `void`       | Fetches favicon bytes, sets taskbar icon                             |
+| `reset_window_icon`        | —                                 | `void`       | Restores default app icon                                            |
+| `get_work_area`            | —                                 | `WorkArea`   | Current monitor's work area `{x, y, width, height}` (Win32 on Win)   |
 
-All commands return `Result<(), AppError>` serialised as `{ message: string }` on error.
+`WorkArea` shape: `{ x: i32, y: i32, width: u32, height: u32 }` in physical pixels.
+
+All other commands return `Result<(), AppError>` serialised as `{ message: string }` on error.
+
+### Tauri events (backend → frontend)
+
+| Event                                 | Payload        | Fired when                                          |
+| ------------------------------------- | -------------- | --------------------------------------------------- |
+| `fullscreen-changed`                  | `bool`         | After `toggle_fullscreen_layout` or F11 shortcut    |
+| `overlay-changed`                     | `bool`         | After `show_titlebar_overlay`                       |
+| `edge-enter` / `edge-leave`           | `()`           | Mouse near top edge of webview (fullscreen)         |
+| `edge-left-enter` / `edge-left-leave` | `()`           | Mouse near left edge of webview (fullscreen)        |
+| `service-load-started`                | `string` (URL) | Child webview begins navigation                     |
+| `service-load-finished`               | `string` (URL) | Child webview's `on_page_load(Finished)`            |
 
 ### URI scheme protocols (child webview → backend)
 
-| Scheme            | Query params                                                            | Purpose                                          |
-| ----------------- | ----------------------------------------------------------------------- | ------------------------------------------------ |
-| `ingwe-ctrl://`   | `a=top-enter`, `top-leave`, `left-enter`, `left-leave`, `script-ready`  | Edge hover → overlay reveal; init diagnostic     |
-| `ingwe-notify://` | `title=…&body=…`                                                        | Web Notification bridge → native OS notification |
+| Scheme            | Query params                                                                          | Purpose                                                            |
+| ----------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `ingwe-ctrl://`   | `a=top-enter` / `top-leave` / `left-enter` / `left-leave` / `escape` / `script-ready` | Edge hover overlay reveal, ESC to exit fullscreen, init diagnostic |
+| `ingwe-notify://` | `title=…&body=…`                                                                      | Web Notification bridge → native OS notification                   |
 
 ---
 
@@ -198,14 +243,17 @@ shadow:  float = 0 4px 24px rgba(0,0,0,0.8)
 interface ServicesState {
   activeId:       string | null;
   flyoutOpen:     boolean;
-  isLoading:      boolean;       // true while open_service is in-flight
+  isLoading:      boolean;       // true while a service navigation is in-flight;
+                                 // cleared by the `service-load-finished` event
   isFullscreen:   boolean;       // driven by fullscreen-changed event
   wizardOpen:     boolean;
   enabledIds:     string[];      // persisted in ingwe.json; defaults to all services
-  customServices: ServiceDefinition[];
+  customServices: ServiceDefinition[];  // each has category: "video" | "music"
 
   openService(service: ServiceDefinition): Promise<void>;
+  resetService(service: ServiceDefinition): Promise<void>;  // right-click → force nav
   closeService(): Promise<void>;
+  setLoading(value: boolean): void;     // event listener uses this to clear isLoading
   openFlyout(): void;
   toggleFlyout(): void;
   closeFlyout(): void;
@@ -217,7 +265,8 @@ interface ServicesState {
   initFromStore(): Promise<void>; // called once on App mount
 }
 
-// Derived selector — use instead of reading enabledIds/customServices directly
+// Derived selector — alphabetically merges built-in and custom services by label.
+// Always prefer this over reading enabledIds/customServices directly.
 export function useActiveServices(): ServiceDefinition[]
 ```
 
@@ -284,12 +333,20 @@ core:default
 opener:default
 window-state:default
 global-shortcut:allow-register / allow-unregister / allow-is-registered
-core:window:allow-close / allow-minimize / allow-toggle-maximize
+core:window:allow-close / allow-minimize
+core:window:allow-set-fullscreen / allow-is-fullscreen
 core:window:allow-start-dragging / allow-start-resize-dragging
 core:window:allow-set-focus / allow-show / allow-hide / allow-set-icon
+core:window:allow-set-size / allow-set-position
+core:window:allow-outer-size / allow-outer-position
 store:default
 notification:default
 ```
+
+`allow-set-size` / `allow-set-position` / `allow-outer-size` / `allow-outer-position` are
+required for the soft-maximise logic in `TitleBar.tsx`. `allow-toggle-maximize` and
+`allow-is-maximized` are intentionally **absent** — the OS-level maximise path is not used
+(see *Soft maximise* in the Architecture section).
 
 When adding a new plugin, append its permission identifiers here.
 
@@ -310,8 +367,11 @@ When adding a new plugin, append its permission identifiers here.
 ```
 
 `resizable: true` is required for `startResizeDragging` to work on Windows (`WS_THICKFRAME`).
-`maximizable: false` prevents the window from covering the Windows taskbar when maximised
-via keyboard shortcuts, which would block interaction with the OS shell.
+`maximizable: false` blocks OS-level maximise (Win+Up, drag-snap, double-click on
+`data-tauri-drag-region`) so the WS_MAXIMIZE state — which corrupts taskbar rendering on
+frameless windows (tauri#7103) — is never entered. Maximise is provided instead by the
+custom soft-maximise button that resizes the window to the work area without changing OS
+state.
 
 ---
 

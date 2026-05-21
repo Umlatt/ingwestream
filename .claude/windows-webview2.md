@@ -136,6 +136,80 @@ than propagated as an `AppError`. The service view is shown regardless.
 
 ---
 
+## Known issue: WS_MAXIMIZE corrupts taskbar rendering on frameless windows
+
+**Symptom**: Maximising the frameless window via OS-level maximise (`window.maximize()`,
+double-click on `data-tauri-drag-region`, `Win+Up`, drag-snap to top edge) causes the
+Windows taskbar to render as a flat, plain-colour band instead of its normal acrylic
+appearance. The window itself stops at the work-area boundary correctly, but the taskbar
+is visually broken until the window is restored.
+
+**Root cause**: Tauri issue [#7103](https://github.com/tauri-apps/tauri/issues/7103) — the
+Windows DWM compositor's taskbar acrylic / mica calculation depends on a "real" non-client
+area, which a `decorations: false` window doesn't have. When such a window enters
+WS_MAXIMIZE state, DWM can't compose the taskbar properly and falls back to the broken
+flat-band render.
+
+**Fix — soft maximise**:
+
+1. `tauri.conf.json` has `"maximizable": false`, blocking Win+Up, drag-snap, and
+   `data-tauri-drag-region` double-click from putting the window into WS_MAXIMIZE.
+2. The title bar's maximise button calls `get_work_area` (Rust IPC command) which uses
+   `MonitorFromWindow(MONITOR_DEFAULTTONEAREST)` + `GetMonitorInfoW` to fetch
+   `MONITORINFO.rcWork`.
+3. `TitleBar.tsx` saves the current `outerPosition` + `outerSize` in a ref, then calls
+   `win.setPosition(new PhysicalPosition(x, y))` + `win.setSize(new PhysicalSize(w, h))`
+   to fit the work area.
+4. Restore pops the saved bounds back.
+
+The OS never enters WS_MAXIMIZE, so the taskbar compositor remains in its normal
+acrylic state regardless of how "maximised" the window looks.
+
+```rust
+// commands.rs::get_work_area — Windows path
+let hwnd_raw = main.hwnd()?.0 as HWND;
+let monitor = unsafe { MonitorFromWindow(hwnd_raw, MONITOR_DEFAULTTONEAREST) };
+let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
+info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+if unsafe { GetMonitorInfoW(monitor, &mut info) } != 0 {
+    return Ok(WorkArea {
+        x: info.rcWork.left,
+        y: info.rcWork.top,
+        width: (info.rcWork.right - info.rcWork.left) as u32,
+        height: (info.rcWork.bottom - info.rcWork.top) as u32,
+    });
+}
+```
+
+`windows-sys 0.59` is a Windows-only target dep in `Cargo.toml`:
+
+```toml
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
+```
+
+On Linux / macOS this entire dance is unnecessary (their compositors handle dock/panel
+correctly during OS-level maximise) — the `get_work_area` command falls back to the full
+monitor size on those platforms.
+
+---
+
+## Fullscreen vs. soft-maximise
+
+These are deliberately separate:
+
+| Mode             | OS state          | Taskbar / dock | How it's entered                                    |
+| ---------------- | ----------------- | -------------- | --------------------------------------------------- |
+| Soft maximise    | Normal sized      | Visible        | Maximise button → `setSize(work_area)`              |
+| Fullscreen       | True fullscreen   | Hidden by OS   | Cinema button / F11 / ESC → `set_fullscreen(true)`  |
+
+`toggle_fullscreen_layout` calls `apply_os_fullscreen` which invokes
+`window.set_fullscreen(new_state)` — this is **true OS-level fullscreen**, so the
+compositor properly hides the taskbar/menu bar rather than letting our frameless window
+paint over it.
+
+---
+
 ## Known issue: Global shortcut registration panics on Linux/WSLg
 
 **Symptom**: Calling `app.global_shortcut().on_shortcut("MediaPlayPause", …)` panics
@@ -235,8 +309,13 @@ FS+both:     pos=(208, 32),    size=(w-208, h-32)
   enables OS-level window dragging.
 - `resizable: true` — required for `WS_THICKFRAME`, which `startResizeDragging` needs
   to send `WM_SYSCOMMAND(SC_SIZE)`.
-- `maximizable: false` — prevents `decorations: false` windows from maximising over the
-  taskbar (a known Windows behaviour where frameless maximised windows cover the work area).
+- `maximizable: false` — blocks OS-level maximise (Win+Up, drag-snap, double-click on
+  `data-tauri-drag-region`) so the WS_MAXIMIZE state — which corrupts taskbar rendering
+  on frameless windows (tauri#7103, see *WS_MAXIMIZE corrupts taskbar* above) — is never
+  entered. The custom maximise button uses `setSize(work_area)` instead.
 - `visible: false` — window shown programmatically in `setup` after state is ready.
-- DPI: Tauri handles DPI scaling; always use logical pixels for child webview positioning.
+- DPI: Tauri handles DPI scaling; child-webview positioning uses logical pixels via
+  `LogicalPosition` + `LogicalSize`. The work-area path uses **physical** pixels
+  (`PhysicalPosition` + `PhysicalSize`) because `GetMonitorInfoW` returns physical
+  coordinates.
 - WebView2 devtools: press F12 inside the child webview in dev builds (`devtools` feature).
