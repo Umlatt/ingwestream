@@ -13,14 +13,24 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
   style.textContent = ':root{color-scheme:dark!important}html,body{background:#000!important;color:#f0f0f0!important}';
   document.head.appendChild(style);
 
-  // 3. Override matchMedia so services detect dark mode
+  // 3. Override matchMedia so services detect dark mode.
+  //    Returns a plain-object wrapper for the dark-mode query — never a MediaQueryList
+  //    instance — so callers that do Object.assign() on the result (e.g. MUI, YTM)
+  //    don't hit "matches has only a getter" TypeError.
   var _matchMedia = window.matchMedia.bind(window);
   window.matchMedia = function(q) {
-    var result = _matchMedia(q);
-    if (q === '(prefers-color-scheme: dark)') {
-      return Object.assign(Object.create(result), result, { matches: true });
-    }
-    return result;
+    var mql = _matchMedia(q);
+    if (q !== '(prefers-color-scheme: dark)') return mql;
+    return {
+      matches: true,
+      media: mql.media,
+      onchange: null,
+      addListener:         function(cb)           { mql.addListener(cb); },
+      removeListener:      function(cb)           { mql.removeListener(cb); },
+      addEventListener:    function(t, cb, opts)  { mql.addEventListener(t, cb, opts); },
+      removeEventListener: function(t, cb, opts)  { mql.removeEventListener(t, cb, opts); },
+      dispatchEvent:       function(evt)          { return mql.dispatchEvent(evt); },
+    };
   };
 
   // 4. Notification bridge — intercept window.Notification and route to native
