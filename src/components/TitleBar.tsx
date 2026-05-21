@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { LayoutGrid, Minus, Square, X, Expand, Shrink } from "lucide-react";
+import { LayoutGrid, Minus, X, Expand, Shrink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useServicesStore, useActiveServices } from "@/store/services";
 
@@ -61,13 +61,6 @@ export function TitleBar({ forceShow = false }: { forceShow?: boolean }) {
           aria-label="Minimise"
         >
           <Minus className="size-3.5" />
-        </button>
-        <button
-          onClick={() => win.toggleMaximize()}
-          className="h-full px-4 flex items-center text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors duration-150"
-          aria-label="Maximise"
-        >
-          <Square className="size-3.5" />
         </button>
         <button
           onClick={() => win.close()}

@@ -196,7 +196,9 @@ pub fn open_service(
         v.eval(&format!("window.location.href = {url_json};"))?;
     }
     v.show()?;
-    v.set_focus()?;
+    if let Err(e) = v.set_focus() {
+        log::warn!("open_service: set_focus failed (non-fatal): {e}");
+    }
     Ok(())
 }
 

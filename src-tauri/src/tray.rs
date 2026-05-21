@@ -7,7 +7,7 @@ use tauri::{
 use crate::commands::dispatch_media_key;
 
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItemBuilder::with_id("show", "Show Ingwe").build(app)?;
+    let show = MenuItemBuilder::with_id("show", "Show IngweStream").build(app)?;
     let prev = MenuItemBuilder::with_id("prev", "Previous").build(app)?;
     let play = MenuItemBuilder::with_id("play", "Play / Pause").build(app)?;
     let next = MenuItemBuilder::with_id("next", "Next").build(app)?;

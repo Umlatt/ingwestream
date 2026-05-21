@@ -48,26 +48,58 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
 
   // 5. Media bridge — called by Rust dispatch_media_key via eval()
   window.__ingweMedia = function(action) {
-    // Click the first selector that resolves to an element
+    // Click the first selector that resolves to an element in the light DOM
     function tryClick(selectors) {
       for (var i = 0; i < selectors.length; i++) {
         try { var el = document.querySelector(selectors[i]); if (el) { el.click(); return true; } } catch(_) {}
       }
       return false;
     }
-    // Dispatch a keydown+keyup pair to activeElement, document, and window
+    // Click inside a specific web-component shadow root (e.g. YouTube Music uses ytmusic-player-bar)
+    function tryClickShadow(hostSelector, selectors) {
+      try {
+        var host = document.querySelector(hostSelector);
+        if (!host || !host.shadowRoot) return false;
+        for (var i = 0; i < selectors.length; i++) {
+          try { var el = host.shadowRoot.querySelector(selectors[i]); if (el) { el.click(); return true; } } catch(_) {}
+        }
+      } catch(_) {}
+      return false;
+    }
+    // Dispatch a keydown+keyup pair to document and window only — deliberately
+    // excluding document.activeElement to avoid misinterpretation by focused containers
+    // (e.g. YTM queue panel treating MediaTrackNext as a scroll command)
     function dispatchKey(k) {
       var opts = { key: k.key, code: k.code, keyCode: k.keyCode, which: k.keyCode, bubbles: true, cancelable: true };
-      [document.activeElement, document, window].forEach(function(t) {
+      [document, window].forEach(function(t) {
         if (!t) return;
         try { t.dispatchEvent(new KeyboardEvent('keydown', opts)); } catch(_) {}
         try { t.dispatchEvent(new KeyboardEvent('keyup',   opts)); } catch(_) {}
       });
     }
 
+    // Deep media element search — pierces shadow DOM for web components (e.g. YouTube Music)
+    function findMediaElements() {
+      var light = [].slice.call(document.querySelectorAll('video, audio')).filter(function(m) { return !m.error; });
+      if (light.length > 0) return light;
+      var result = [];
+      (function search(root) {
+        if (!root) return;
+        try {
+          [].slice.call(root.querySelectorAll('video, audio')).forEach(function(m) {
+            if (!m.error) result.push(m);
+          });
+          [].slice.call(root.querySelectorAll('*')).forEach(function(el) {
+            if (el.shadowRoot) search(el.shadowRoot);
+          });
+        } catch(_) {}
+      })(document);
+      return result;
+    }
+
     if (action === 'play') {
       // 1. Direct video/audio element toggle (YouTube, Netflix, Disney+, etc.)
-      var medias = [].slice.call(document.querySelectorAll('video, audio')).filter(function(m) { return !m.error; });
+      var medias = findMediaElements();
       var active = medias.filter(function(m) { return !m.paused && !m.ended; })[0]
                 || medias.filter(function(m) { return m.readyState >= 2; })[0]
                 || medias[0];
@@ -83,7 +115,8 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
         '[data-testid="control-button-playpause"]',          // Spotify
         '[data-testid="PlayPauseButton"]',                   // Amazon Music
         '.ytp-play-button',                                  // YouTube embedded player
-        '.play-pause-button',                                // YouTube Music
+        '.play-pause-button',                                // YouTube Music (light DOM)
+        'tp-yt-paper-icon-button.play-pause-button',         // YouTube Music (Polymer, light DOM)
         '[aria-label="Pause"]', '[aria-label="Play"]',
         '[aria-label="Pause video"]', '[aria-label="Play video"]',
         '[aria-label="Pause song"]',  '[aria-label="Play song"]',
@@ -91,6 +124,11 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
         'button[title="Pause"]',      'button[title="Play"]',
         '[class*="PlayPause"]',       '[class*="play-pause"]',
         '[class*="playPause"]'
+      ])) return;
+      // 2b. YouTube Music — controls live inside ytmusic-player-bar shadow root
+      if (tryClickShadow('ytmusic-player-bar', [
+        '.play-pause-button', 'tp-yt-paper-icon-button.play-pause-button',
+        '[aria-label="Pause"]', '[aria-label="Play"]'
       ])) return;
       // 3. Keyboard fallback
       dispatchKey({ key: 'MediaPlayPause', code: 'MediaPlayPause', keyCode: 179 });
@@ -101,14 +139,19 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
     if (action === 'next') {
       if (tryClick([
         '[data-testid="control-button-skip-forward"]',       // Spotify
-        'paper-icon-button.next-button',                     // YouTube Music
-        'tp-yt-paper-icon-button.next-button',               // YouTube Music (alt)
+        'paper-icon-button.next-button',                     // YouTube Music (light DOM)
+        'tp-yt-paper-icon-button.next-button',               // YouTube Music (light DOM alt)
         '.ytp-next-button',                                  // YouTube player
         '[aria-label="Next song"]',    '[aria-label="Next track"]',
         '[aria-label="Next video"]',   '[aria-label="Next"]',
         'button[title="Next song"]',   'button[title="Next track"]',
         'button[title="Next"]',        '[class*="NextButton"]',
         '[class*="next-button"]',      '[class*="nextButton"]'
+      ])) return;
+      // YouTube Music shadow DOM
+      if (tryClickShadow('ytmusic-player-bar', [
+        'tp-yt-paper-icon-button.next-button', '.next-button',
+        '[aria-label="Next"]', '[aria-label="Next song"]', '[title="Next"]'
       ])) return;
       dispatchKey({ key: 'MediaTrackNext', code: 'MediaTrackNext', keyCode: 176 });
       return;
@@ -117,13 +160,18 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
     if (action === 'prev') {
       if (tryClick([
         '[data-testid="control-button-skip-back"]',          // Spotify
-        'paper-icon-button.previous-button',                 // YouTube Music
-        'tp-yt-paper-icon-button.previous-button',           // YouTube Music (alt)
+        'paper-icon-button.previous-button',                 // YouTube Music (light DOM)
+        'tp-yt-paper-icon-button.previous-button',           // YouTube Music (light DOM alt)
         '[aria-label="Previous song"]','[aria-label="Previous track"]',
         '[aria-label="Previous video"]','[aria-label="Previous"]',
         'button[title="Previous song"]','button[title="Previous track"]',
         'button[title="Previous"]',    '[class*="PrevButton"]',
         '[class*="prev-button"]',      '[class*="prevButton"]'
+      ])) return;
+      // YouTube Music shadow DOM
+      if (tryClickShadow('ytmusic-player-bar', [
+        'tp-yt-paper-icon-button.previous-button', '.previous-button',
+        '[aria-label="Previous"]', '[aria-label="Previous song"]', '[title="Previous"]'
       ])) return;
       dispatchKey({ key: 'MediaTrackPrevious', code: 'MediaTrackPrevious', keyCode: 177 });
       return;

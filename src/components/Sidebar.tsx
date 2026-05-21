@@ -58,10 +58,11 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Full-screen backdrop — fixed so it covers titlebar area and fullscreen mode */}
+      {/* Backdrop — starts below titlebar in normal mode, full-height in fullscreen */}
       <div
         className={cn(
-          "fixed inset-0 z-20 bg-black/50 transition-opacity duration-200",
+          "fixed inset-x-0 bottom-0 z-20 bg-black/50 transition-opacity duration-200",
+          isFullscreen ? "top-0" : "top-8",
           flyoutOpen
             ? "opacity-100 pointer-events-auto"
             : "opacity-0 pointer-events-none",
@@ -69,12 +70,13 @@ export function Sidebar() {
         onClick={closeFlyout}
       />
 
-      {/* Flyout panel — fixed, spans full viewport height */}
+      {/* Flyout panel — starts below titlebar in normal mode, full-height in fullscreen */}
       <aside
         className={cn(
-          "fixed left-0 top-0 h-full w-52 flex flex-col",
+          "fixed left-0 bottom-0 w-52 flex flex-col",
           "bg-bg-surface border-r border-border-base z-30",
           "transition-transform duration-200 ease-in-out",
+          isFullscreen ? "top-0" : "top-8",
           flyoutOpen ? "translate-x-0" : "-translate-x-full",
         )}
         onMouseEnter={() => clearTimeout(leaveTimerRef.current)}

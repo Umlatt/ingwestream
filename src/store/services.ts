@@ -34,7 +34,7 @@ export const useServicesStore = create<ServicesState>((set, get) => ({
   isLoading: true,
   isFullscreen: false,
   wizardOpen: false,
-  enabledIds: [],
+  enabledIds: SERVICES.map((s) => s.id), // populated immediately; overridden by initFromStore
   customServices: [],
 
   openFlyout: () => {
