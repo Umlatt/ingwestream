@@ -48,6 +48,7 @@ pub fn run() {
         .manage(Mutex::new(AppState::new()))
         .invoke_handler(tauri::generate_handler![
             commands::open_service,
+            commands::reset_service,
             commands::close_service,
             commands::show_service_view,
             commands::hide_service_view,

@@ -212,6 +212,39 @@ pub fn open_service(
     Ok(())
 }
 
+/// Force-navigate the service webview to the given URL even when the requested
+/// service is already active. Used by the sidebar's right-click "reset to
+/// default URL" action so a user can recover from being lost deep in a service.
+#[tauri::command]
+pub fn reset_service(
+    state: State<'_, Mutex<AppState>>,
+    service_id: String,
+    url: String,
+) -> Result<(), AppError> {
+    let parsed_url = url
+        .parse::<tauri::Url>()
+        .map_err(|e| AppError::InvalidUrl(e.to_string()))?;
+
+    let view = {
+        let mut s = state.lock().map_err(|_| AppError::StatePoisoned)?;
+        s.active_service_id = Some(service_id.clone());
+        s.overlay_sidebar = false;
+        s.service_view.clone()
+    };
+
+    let v = view.ok_or_else(|| AppError::Tauri("service webview not initialized".into()))?;
+
+    let url_json = serde_json::to_string(parsed_url.as_str())
+        .map_err(|e| AppError::Tauri(e.to_string()))?;
+    log::info!("reset_service: id={service_id} url={url}");
+    v.eval(&format!("window.location.href = {url_json};"))?;
+    v.show()?;
+    if let Err(e) = v.set_focus() {
+        log::warn!("reset_service: set_focus failed (non-fatal): {e}");
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn close_service(state: State<'_, Mutex<AppState>>) -> Result<(), AppError> {
     let view = {

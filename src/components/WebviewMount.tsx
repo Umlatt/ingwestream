@@ -4,6 +4,7 @@ import { getVersion, getName } from "@tauri-apps/api/app";
 import { cn } from "@/lib/utils";
 import { useServicesStore, useActiveServices } from "@/store/services";
 import type { ServiceDefinition } from "@/services/serviceRegistry";
+import logoUrl from "../../media/logo.png";
 
 export function WebviewMount() {
   const activeId = useServicesStore((s) => s.activeId);
@@ -136,7 +137,8 @@ function ServiceLauncher() {
   const video = services.filter((s) => s.category !== "music");
 
   return (
-    <div className="absolute inset-0 flex flex-col">
+    <div className="absolute inset-0 flex flex-col bg-bg-base">
+      <LauncherHeader />
       <LauncherPane title="Video" services={video} />
       <div className="shrink-0 border-t border-border-base" />
       <LauncherPane title="Music" services={music} />
@@ -145,18 +147,40 @@ function ServiceLauncher() {
   );
 }
 
-function LauncherFooter() {
+function LauncherHeader() {
   const [appName, setAppName] = useState("IngweStream");
-  const [version, setVersion] = useState("");
   useEffect(() => {
     getName().then(setAppName).catch(() => {});
+  }, []);
+  return (
+    <header className="shrink-0 flex items-center justify-center gap-5 px-8 pt-8 pb-6">
+      <img
+        src={logoUrl}
+        alt=""
+        aria-hidden
+        className="size-14 object-contain drop-shadow-[0_2px_12px_rgba(79,134,247,0.25)]"
+      />
+      <div className="flex flex-col leading-tight">
+        <h1 className="text-2xl font-bold tracking-tight text-text-primary">
+          {appName}
+        </h1>
+        <p className="text-xs text-text-muted mt-1 tracking-wide">
+          Choose a service to begin
+        </p>
+      </div>
+    </header>
+  );
+}
+
+function LauncherFooter() {
+  const [version, setVersion] = useState("");
+  useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
   }, []);
   return (
     <footer className="shrink-0 border-t border-border-base px-6 py-2.5 text-center text-[11px] text-text-disabled tracking-wide">
-      <span className="text-text-muted">{appName}</span>
-      {version && <> &middot; v{version}</>}
-      <span className="mx-2 text-text-disabled">—</span>
+      {version && <span className="text-text-muted">v{version}</span>}
+      {version && <span className="mx-2 text-text-disabled">—</span>}
       brought to you by{" "}
       <span className="text-text-secondary font-medium">Lazy Lion Consulting</span>
     </footer>
@@ -172,9 +196,13 @@ function LauncherPane({
 }) {
   return (
     <section className="flex-1 min-h-0 flex flex-col">
-      <p className="shrink-0 text-xs tracking-widest uppercase text-text-muted text-center py-4">
-        {title}
-      </p>
+      <div className="shrink-0 flex items-center gap-3 px-8 py-3">
+        <div className="h-px flex-1 bg-border-base" />
+        <p className="text-[10px] tracking-[0.2em] uppercase font-semibold text-text-muted">
+          {title}
+        </p>
+        <div className="h-px flex-1 bg-border-base" />
+      </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-8 pb-6">
         {/* flex-wrap + justify-center keeps every row — including a partial
             last row — horizontally centred within the pane. */}

@@ -27,12 +27,19 @@ function ServiceItem({
   isLoading: boolean;
 }) {
   const openService = useServicesStore((s) => s.openService);
+  const resetService = useServicesStore((s) => s.resetService);
 
   return (
     <button
       onClick={() => openService(service)}
+      onContextMenu={(e) => {
+        // Right-click → reset service to its default URL. Useful when a user is
+        // lost deep in a service (e.g. on a login wall) and wants to start over.
+        e.preventDefault();
+        resetService(service);
+      }}
       disabled={isLoading}
-      title={service.label}
+      title={`${service.label} — right-click to reset`}
       className={cn(
         "w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors duration-150",
         "text-text-secondary hover:text-text-primary hover:bg-bg-elevated",

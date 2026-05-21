@@ -535,12 +535,12 @@ export function ServiceWizard() {
       </div>
 
       {/* ── Footer ── */}
-      <div className="shrink-0 px-8 py-5 border-t border-border-base">
+      <div className="shrink-0 flex items-center justify-end px-8 py-4 border-t border-border-base">
         <button
           onClick={save}
           disabled={totalSelected === 0}
           className={cn(
-            "w-full py-2.5 rounded-xl text-sm font-semibold tracking-wide transition-all duration-150",
+            "px-5 py-2 rounded-lg text-sm font-semibold tracking-wide transition-all duration-150",
             totalSelected > 0
               ? "bg-accent hover:bg-accent-hover text-white cursor-pointer"
               : "bg-bg-elevated text-text-disabled cursor-not-allowed",

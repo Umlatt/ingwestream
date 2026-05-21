@@ -13,6 +13,7 @@ interface ServicesState {
   customServices: ServiceDefinition[];
 
   openService: (service: ServiceDefinition) => Promise<void>;
+  resetService: (service: ServiceDefinition) => Promise<void>;
   closeService: () => Promise<void>;
   setLoading: (value: boolean) => void;
   openFlyout: () => void;
@@ -93,6 +94,23 @@ export const useServicesStore = create<ServicesState>((set, get) => ({
   },
 
   setLoading: (value: boolean) => set({ isLoading: value }),
+
+  resetService: async (service) => {
+    if (get().isLoading) return;
+    // Always navigate, even if this is already the active service — that's the
+    // whole point of "reset to default URL".
+    set({ activeId: service.id, flyoutOpen: false, isLoading: true });
+    try {
+      await invoke("reset_service", { serviceId: service.id, url: service.url });
+      invoke("update_window_icon", { faviconUrl: service.faviconUrl }).catch(
+        () => {},
+      );
+    } catch (e) {
+      console.error("[ingwe] reset_service failed:", e);
+      set({ isLoading: false });
+    }
+    // Loading state cleared by `service-load-finished` event listener in App.tsx.
+  },
 
   closeService: async () => {
     await invoke("close_service");
