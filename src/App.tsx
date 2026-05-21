@@ -11,8 +11,10 @@ import { useServicesStore } from "@/store/services";
 function App() {
   const initFromStore = useServicesStore((s) => s.initFromStore);
   const setFullscreen = useServicesStore((s) => s.setFullscreen);
+  const setLoading = useServicesStore((s) => s.setLoading);
   const wizardOpen = useServicesStore((s) => s.wizardOpen);
   const isFullscreen = useServicesStore((s) => s.isFullscreen);
+  const toggleFullscreen = useServicesStore((s) => s.toggleFullscreen);
   const openFlyout = useServicesStore((s) => s.openFlyout);
   const closeFlyout = useServicesStore((s) => s.closeFlyout);
 
@@ -38,6 +40,19 @@ function App() {
 
     return () => { unlisten?.(); };
   }, []);
+
+  // ESC exits fullscreen when the React UI has focus (the webview has its own
+  // listener that fires `ingwe-ctrl://?a=escape`). Reads isFullscreen from the
+  // store snapshot so we don't need to re-subscribe on every change.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && useServicesStore.getState().isFullscreen) {
+        toggleFullscreen();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleFullscreen]);
 
   useEffect(() => {
     const unlistens: Promise<() => void>[] = [];
@@ -86,11 +101,18 @@ function App() {
       }),
     );
 
+    // service-load-finished: webview reports navigation completed → drop loading state
+    unlistens.push(
+      listen<string>("service-load-finished", () => {
+        setLoading(false);
+      }),
+    );
+
     return () => {
       clearTimeout(hideTimerRef.current);
       unlistens.forEach((p) => p.then((fn) => fn()));
     };
-  }, [openFlyout, closeFlyout]);
+  }, [openFlyout, closeFlyout, setLoading]);
 
   return (
     <div className="flex flex-col h-screen bg-bg-base text-text-primary overflow-hidden">

@@ -62,14 +62,23 @@ pub fn init_service_webview(app: &AppHandle) -> Result<(), AppError> {
         WebviewBuilder::new("service-view", WebviewUrl::External(blank_url))
             .initialization_script(WEBVIEW_DARK_INIT)
             .on_page_load(move |webview, payload| {
-                if payload.event() == PageLoadEvent::Finished {
-                    // Skip blank / internal pages
-                    let url = payload.url().as_str();
-                    if !url.starts_with("about:") && !url.starts_with("data:") {
-                        if let Err(e) = webview.eval(&inject_js) {
-                            log::warn!("on_page_load: inject failed: {e}");
-                        } else {
-                            log::info!("on_page_load: injected media bridge for {url}");
+                let url = payload.url().as_str();
+                let internal = url.starts_with("about:") || url.starts_with("data:");
+                let app = webview.app_handle();
+                match payload.event() {
+                    PageLoadEvent::Started => {
+                        if !internal {
+                            let _ = app.emit("service-load-started", url.to_string());
+                        }
+                    }
+                    PageLoadEvent::Finished => {
+                        if !internal {
+                            if let Err(e) = webview.eval(&inject_js) {
+                                log::warn!("on_page_load: inject failed: {e}");
+                            } else {
+                                log::info!("on_page_load: injected media bridge for {url}");
+                            }
+                            let _ = app.emit("service-load-finished", url.to_string());
                         }
                     }
                 }
@@ -108,6 +117,7 @@ pub fn handle_ctrl_protocol(app: &AppHandle, uri: String) {
         "top-leave" | "0" => { let _ = app.emit("edge-leave", ()); }
         "left-enter"      => { let _ = app.emit("edge-left-enter", ()); }
         "left-leave"      => { let _ = app.emit("edge-left-leave", ()); }
+        "escape"          => { toggle_fullscreen_from_shortcut(app); }
         "script-ready"    => { log::info!("service webview init script loaded"); }
         _ => {}
     }

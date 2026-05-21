@@ -14,6 +14,7 @@ interface ServicesState {
 
   openService: (service: ServiceDefinition) => Promise<void>;
   closeService: () => Promise<void>;
+  setLoading: (value: boolean) => void;
   openFlyout: () => void;
   toggleFlyout: () => void;
   closeFlyout: () => void;
@@ -71,7 +72,14 @@ export const useServicesStore = create<ServicesState>((set, get) => ({
 
   openService: async (service) => {
     if (get().isLoading) return;
-    set({ activeId: service.id, flyoutOpen: false, isLoading: true });
+    const sameService = get().activeId === service.id;
+    set({
+      activeId: service.id,
+      flyoutOpen: false,
+      // Only show loading state when actually navigating to a new service.
+      // For same-service reopen (sidebar click), there is no page load to wait on.
+      isLoading: !sameService,
+    });
     try {
       await invoke("open_service", { serviceId: service.id, url: service.url });
       invoke("update_window_icon", { faviconUrl: service.faviconUrl }).catch(
@@ -79,10 +87,12 @@ export const useServicesStore = create<ServicesState>((set, get) => ({
       );
     } catch (e) {
       console.error("[ingwe] open_service failed:", e);
-    } finally {
       set({ isLoading: false });
     }
+    // Loading state cleared by `service-load-finished` event listener in App.tsx.
   },
+
+  setLoading: (value: boolean) => set({ isLoading: value }),
 
   closeService: async () => {
     await invoke("close_service");

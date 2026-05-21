@@ -56,7 +56,32 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
     window.Notification = IngweNotification;
   })();
 
-  // 5. Media bridge — called by Rust dispatch_media_key via eval()
+  // 5a. MediaSession hook — wrap navigator.mediaSession.setActionHandler so we
+  //     can capture and re-invoke the page's registered handlers directly. This
+  //     is the same path the browser takes when delivering a hardware media key,
+  //     so it works for every site that uses the Media Session API (Spotify,
+  //     YouTube Music, Apple Music, Amazon Music, Tidal, Deezer, SoundCloud, …).
+  window.__ingweMediaHandlers = window.__ingweMediaHandlers || {};
+  (function() {
+    try {
+      if (!navigator.mediaSession || !navigator.mediaSession.setActionHandler) return;
+      if (navigator.mediaSession.__ingweHooked) return;
+      navigator.mediaSession.__ingweHooked = true;
+      var origSet = navigator.mediaSession.setActionHandler.bind(navigator.mediaSession);
+      navigator.mediaSession.setActionHandler = function(action, handler) {
+        if (handler) window.__ingweMediaHandlers[action] = handler;
+        else delete window.__ingweMediaHandlers[action];
+        return origSet(action, handler);
+      };
+    } catch(_) {}
+  })();
+  function callMediaSessionHandler(name) {
+    var h = window.__ingweMediaHandlers && window.__ingweMediaHandlers[name];
+    if (typeof h !== 'function') return false;
+    try { h({ action: name }); return true; } catch(_) { return false; }
+  }
+
+  // 5b. Media bridge — called by Rust dispatch_media_key via eval()
   window.__ingweMedia = function(action) {
     // Click the first selector that resolves to an element in the light DOM
     function tryClick(selectors) {
@@ -109,6 +134,13 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
     }
 
     if (action === 'play') {
+      // 0. MediaSession handler — prefer "play"/"pause" depending on whether anything
+      //    is currently playing. This is what hardware keys would trigger in a browser.
+      var ms = window.__ingweMediaHandlers || {};
+      var playing = findMediaElements().some(function(m) { return !m.paused && !m.ended; });
+      if (playing && callMediaSessionHandler('pause')) return;
+      if (!playing && callMediaSessionHandler('play')) return;
+      if (callMediaSessionHandler('playpause')) return;
       // 1. Direct video/audio element toggle (YouTube, Netflix, Disney+, etc.)
       var medias = findMediaElements();
       var active = medias.filter(function(m) { return !m.paused && !m.ended; })[0]
@@ -148,6 +180,7 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
     }
 
     if (action === 'next') {
+      if (callMediaSessionHandler('nexttrack')) return;
       if (tryClick([
         '[data-testid="control-button-skip-forward"]',       // Spotify
         'paper-icon-button.next-button',                     // YouTube Music (light DOM)
@@ -171,6 +204,7 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
     }
 
     if (action === 'prev') {
+      if (callMediaSessionHandler('previoustrack')) return;
       if (tryClick([
         '[data-testid="control-button-skip-back"]',          // Spotify
         'paper-icon-button.previous-button',                 // YouTube Music (light DOM)
@@ -193,6 +227,7 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
     }
 
     if (action === 'stop') {
+      if (callMediaSessionHandler('stop')) return;
       dispatchKey({ key: 'MediaStop', code: 'MediaStop', keyCode: 178 });
     }
   };
@@ -209,6 +244,14 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
     e.preventDefault();
     window.__ingweMedia(a);
   }, { capture: true });
+
+  // 7b. Escape key — when fullscreen, asks Rust to exit fullscreen.
+  //     Rust gates the action on `is_fullscreen` so calling outside fullscreen is a no-op.
+  window.addEventListener('keydown', function(e) {
+    if (e.isTrusted && e.key === 'Escape') {
+      try { fetch('ingwe-ctrl://?a=escape').catch(function(){}); } catch(_) {}
+    }
+  }, false);
 
   // 6. Edge hover / scroll-to-top detection — triggers fullscreen titlebar/sidebar reveal
   (function() {
