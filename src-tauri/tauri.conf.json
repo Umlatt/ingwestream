@@ -19,7 +19,7 @@
         "minHeight": 600,
         "decorations": false,
         "resizable": true,
-        "maximizable": false,
+        "maximizable": true,
         "visible": false,
         "devtools": true
       }

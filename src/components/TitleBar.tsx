@@ -1,5 +1,6 @@
+import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { LayoutGrid, Minus, X, Expand, Shrink } from "lucide-react";
+import { LayoutGrid, Minus, X, Expand, Shrink, Square, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useServicesStore, useActiveServices } from "@/store/services";
 
@@ -11,6 +12,22 @@ export function TitleBar({ forceShow = false }: { forceShow?: boolean }) {
   const isLoading = useServicesStore((s) => s.isLoading);
   const isFullscreen = useServicesStore((s) => s.isFullscreen);
   const services = useActiveServices();
+
+  // Track maximize state so the button icon reflects what tapping it will do.
+  // The OS fires `tauri://resize` whenever the window changes size — including
+  // maximize/restore — so we re-query on each resize.
+  const [isMaximized, setIsMaximized] = useState(false);
+  useEffect(() => {
+    let active = true;
+    win.isMaximized().then((v) => active && setIsMaximized(v)).catch(() => {});
+    const unlistenP = win.onResized(() => {
+      win.isMaximized().then((v) => active && setIsMaximized(v)).catch(() => {});
+    });
+    return () => {
+      active = false;
+      unlistenP.then((fn) => fn()).catch(() => {});
+    };
+  }, [win]);
 
   const activeLabel = activeId
     ? (services.find((s) => s.id === activeId)?.label ?? null)
@@ -61,6 +78,17 @@ export function TitleBar({ forceShow = false }: { forceShow?: boolean }) {
           aria-label="Minimise"
         >
           <Minus className="size-3.5" />
+        </button>
+        <button
+          onClick={() => win.toggleMaximize()}
+          className="h-full px-4 flex items-center text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors duration-150"
+          aria-label={isMaximized ? "Restore" : "Maximise"}
+        >
+          {isMaximized ? (
+            <Copy className="size-3 -scale-x-100" />
+          ) : (
+            <Square className="size-3" />
+          )}
         </button>
         <button
           onClick={() => win.close()}

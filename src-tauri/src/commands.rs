@@ -266,6 +266,8 @@ pub fn toggle_fullscreen_layout(
         s.is_fullscreen
     };
 
+    apply_os_fullscreen(&app, new_fullscreen);
+
     // Attempt resize directly — wry may handle thread dispatch internally.
     // Also queue via run_on_main_thread as belt-and-suspenders.
     apply_resize_all(&app);
@@ -441,6 +443,7 @@ pub fn toggle_fullscreen_from_shortcut(app: &AppHandle) {
         }
         Err(_) => return,
     };
+    apply_os_fullscreen(app, new_fullscreen);
     apply_resize_all(app);
     let app_clone = app.clone();
     if let Some(main) = app.get_webview_window("main") {
@@ -448,4 +451,14 @@ pub fn toggle_fullscreen_from_shortcut(app: &AppHandle) {
     }
     let _ = app.emit("fullscreen-changed", new_fullscreen);
     log::info!("F11 fullscreen: {new_fullscreen}");
+}
+
+/// Drive the OS window into / out of true fullscreen so the taskbar is properly
+/// hidden by the compositor rather than just painted-over by a frameless window.
+fn apply_os_fullscreen(app: &AppHandle, fullscreen: bool) {
+    if let Some(main) = app.get_webview_window("main") {
+        if let Err(e) = main.set_fullscreen(fullscreen) {
+            log::warn!("set_fullscreen({fullscreen}) failed: {e}");
+        }
+    }
 }
