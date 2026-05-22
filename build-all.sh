@@ -4,6 +4,9 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_DIR"
 
+# Ensure local node_modules binaries (tsc, vite, tauri) are always on PATH.
+export PATH="$REPO_DIR/node_modules/.bin:$PATH"
+
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 BOLD='\033[1m'
@@ -13,9 +16,15 @@ log()  { echo -e "${BOLD}==> $*${NC}"; }
 ok()   { echo -e "${GREEN}    ✔ $*${NC}"; }
 fail() { echo -e "${RED}    ✘ $*${NC}"; }
 
+# ── Install npm dependencies if needed ───────────────────────────────────────
+if [[ ! -d node_modules ]]; then
+    log "node_modules not found — running npm install…"
+    npm install
+fi
+
 # ── Frontend build (shared by both targets) ───────────────────────────────────
 log "Building frontend…"
-npm run build
+"$REPO_DIR/node_modules/.bin/tsc" && "$REPO_DIR/node_modules/.bin/vite" build
 
 # ── Linux .deb ────────────────────────────────────────────────────────────────
 log "Building Linux (deb)…"
@@ -51,6 +60,25 @@ else
     fi
 fi
 
+# ── macOS (Apple Silicon / aarch64) ──────────────────────────────────────────
+log "Building macOS (arm64 dmg)…"
+MAC_OK=false
+
+if ! command -v rustup &>/dev/null; then
+    fail "Missing: rustup (required to manage Rust targets)"
+else
+    if ! rustup target list --installed | grep -q "aarch64-apple-darwin"; then
+        log "Installing Rust target aarch64-apple-darwin…"
+        rustup target add aarch64-apple-darwin
+    fi
+
+    if npm run tauri:build:mac 2>&1; then
+        MAC_BIN="src-tauri/target/aarch64-apple-darwin/release/ingwestream"
+        MAC_DMG="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name '*.dmg' 2>/dev/null | head -1)"
+        MAC_OK=true
+    fi
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}Build summary${NC}"
@@ -68,6 +96,13 @@ if [[ "$WIN_OK" == true ]]; then
     [[ -n "${WIN_NSIS:-}" ]] && ok "Windows installer: $REPO_DIR/$WIN_NSIS"
 else
     fail "Windows build failed (check prerequisites above)"
+fi
+
+if [[ "$MAC_OK" == true ]]; then
+    ok "macOS binary:    $REPO_DIR/$MAC_BIN"
+    [[ -n "${MAC_DMG:-}" ]] && ok "macOS installer: $REPO_DIR/$MAC_DMG"
+else
+    fail "macOS build failed (requires macOS host with Xcode toolchain)"
 fi
 
 echo "────────────────────────────────────────────────────────"

@@ -201,9 +201,7 @@ pub fn open_service(
 
     log::info!("open_service: id={service_id} same_service={is_same_service}");
     if !is_same_service {
-        let url_json = serde_json::to_string(parsed_url.as_str())
-            .map_err(|e| AppError::Tauri(e.to_string()))?;
-        v.eval(&format!("window.location.href = {url_json};"))?;
+        v.navigate(parsed_url)?;
     }
     v.show()?;
     if let Err(e) = v.set_focus() {
@@ -234,10 +232,8 @@ pub fn reset_service(
 
     let v = view.ok_or_else(|| AppError::Tauri("service webview not initialized".into()))?;
 
-    let url_json = serde_json::to_string(parsed_url.as_str())
-        .map_err(|e| AppError::Tauri(e.to_string()))?;
     log::info!("reset_service: id={service_id} url={url}");
-    v.eval(&format!("window.location.href = {url_json};"))?;
+    v.navigate(parsed_url)?;
     v.show()?;
     if let Err(e) = v.set_focus() {
         log::warn!("reset_service: set_focus failed (non-fatal): {e}");

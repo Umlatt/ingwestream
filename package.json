@@ -21,7 +21,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:build:win": "tauri build --target x86_64-pc-windows-msvc --bundles nsis --runner cargo-xwin",
-    "tauri:build:linux": "tauri build --bundles deb"
+    "tauri:build:linux": "tauri build --bundles deb",
+    "tauri:build:mac": "tauri build --target aarch64-apple-darwin --bundles dmg"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.0",
