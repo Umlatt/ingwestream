@@ -229,6 +229,10 @@ pub fn open_service(
     if let Err(e) = v.set_focus() {
         log::warn!("open_service: set_focus failed (non-fatal): {e}");
     }
+    // Force-resize when showing — guards against the case where the child webview
+    // was created with a stale size at startup (e.g. window-state plugin restored
+    // the window after init_service_webview ran and after the delayed retries).
+    schedule_resize_on_main(&v.app_handle().clone());
     Ok(())
 }
 
@@ -260,6 +264,7 @@ pub fn reset_service(
     if let Err(e) = v.set_focus() {
         log::warn!("reset_service: set_focus failed (non-fatal): {e}");
     }
+    schedule_resize_on_main(&v.app_handle().clone());
     Ok(())
 }
 
@@ -287,6 +292,7 @@ pub fn show_service_view(state: State<'_, Mutex<AppState>>) -> Result<(), AppErr
     if let Some(v) = view {
         v.show()?;
         v.set_focus()?;
+        schedule_resize_on_main(&v.app_handle().clone());
     }
     Ok(())
 }
@@ -506,6 +512,32 @@ pub fn apply_resize_all(app: &AppHandle) {
 /// Kept as a public alias so `on_window_event` and shortcut code can call it.
 pub fn resize_service_view(app: &AppHandle) {
     apply_resize_all(app);
+}
+
+/// Dispatch a resize via `run_on_main_thread` (required for macOS WKWebView),
+/// and also schedule a few delayed retries because the webview's layout can
+/// settle a few frames after `show()` is called. Each retry re-reads the
+/// window's current dimensions, so if the window has been resized between
+/// retries we'll still converge on the correct size.
+pub fn schedule_resize_on_main(app: &AppHandle) {
+    let Some(main) = app.get_webview_window("main") else { return };
+    // Immediate dispatch on the main thread.
+    {
+        let app = app.clone();
+        let _ = main.run_on_main_thread(move || apply_resize_all(&app));
+    }
+    // Delayed retries — covers cases where the window has just been restored
+    // by tauri-plugin-window-state and `inner_size()` is still stale.
+    let h = app.clone();
+    tauri::async_runtime::spawn(async move {
+        for delay in [50u64, 200, 600] {
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            if let Some(w) = h.get_webview_window("main") {
+                let h2 = h.clone();
+                let _ = w.run_on_main_thread(move || apply_resize_all(&h2));
+            }
+        }
+    });
 }
 
 /// Like `apply_resize_all` but uses caller-supplied physical dimensions instead
