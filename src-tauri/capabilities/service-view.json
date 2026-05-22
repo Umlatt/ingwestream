@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "service-view",
+  "description": "Minimal capability for the service child webview",
+  "windows": ["service-view"],
+  "permissions": [
+    "notification:allow-is-permission-granted"
+  ]
+}

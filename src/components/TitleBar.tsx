@@ -84,17 +84,29 @@ export function TitleBar({ forceShow = false }: { forceShow?: boolean }) {
 
       {/* Window controls */}
       <div className="flex items-center h-full">
-        <button
-          onClick={toggleFullscreen}
-          className="h-full px-3 flex items-center text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors duration-150"
-          aria-label="Cinema mode"
-        >
-          {isFullscreen ? (
+        {/* In the fullscreen overlay (forceShow) render a prominent labeled exit button */}
+        {forceShow && isFullscreen ? (
+          <button
+            onClick={toggleFullscreen}
+            className="h-full px-4 flex items-center gap-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors duration-150"
+            aria-label="Exit fullscreen"
+          >
             <Shrink className="size-3.5" />
-          ) : (
-            <Expand className="size-3.5" />
-          )}
-        </button>
+            <span className="text-xs font-medium">Exit Fullscreen</span>
+          </button>
+        ) : (
+          <button
+            onClick={toggleFullscreen}
+            className="h-full px-3 flex items-center text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors duration-150"
+            aria-label="Cinema mode"
+          >
+            {isFullscreen ? (
+              <Shrink className="size-3.5" />
+            ) : (
+              <Expand className="size-3.5" />
+            )}
+          </button>
+        )}
         <button
           onClick={() => win.minimize()}
           className="h-full px-4 flex items-center text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors duration-150"
@@ -124,7 +136,7 @@ export function TitleBar({ forceShow = false }: { forceShow?: boolean }) {
 
       {/* Loading bar */}
       {isLoading && (
-        <div className="absolute bottom-0 left-0 right-0 h-[2px] overflow-hidden pointer-events-none">
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 overflow-hidden pointer-events-none">
           <div className="absolute h-full w-1/2 bg-accent animate-loading-bar" />
         </div>
       )}

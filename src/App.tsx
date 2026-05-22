@@ -32,10 +32,12 @@ function App() {
         clearTimeout(hideTimerRef.current);
         setOverlayVisible(false);
       }
-      // Belt-and-suspenders: ask Rust to re-apply resize after React has re-rendered
-      setTimeout(() => {
-        invoke("apply_fullscreen_resize").catch(() => {});
-      }, 80);
+      // Belt-and-suspenders: re-apply resize after React re-renders.
+      // 80 ms catches Windows/Linux; 650 ms catches the end of the macOS
+      // native fullscreen animation (~500 ms) which fires a final Resized event.
+      invoke("apply_fullscreen_resize").catch(() => {});
+      setTimeout(() => invoke("apply_fullscreen_resize").catch(() => {}), 80);
+      setTimeout(() => invoke("apply_fullscreen_resize").catch(() => {}), 650);
     }).then((fn) => { unlisten = fn; });
 
     return () => { unlisten?.(); };
@@ -127,7 +129,7 @@ function App() {
       {/* Floating titlebar overlay — only in fullscreen when mouse is near top */}
       {isFullscreen && overlayVisible && (
         <div
-          className="fixed top-0 inset-x-0 z-[100]"
+          className="fixed top-0 inset-x-0 z-100"
           onMouseEnter={() => clearTimeout(hideTimerRef.current)}
           onMouseLeave={() => {
             hideTimerRef.current = setTimeout(() => {

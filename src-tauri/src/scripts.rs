@@ -2,16 +2,31 @@
 /// Forces dark colour-scheme, overrides matchMedia, and installs the media bridge.
 pub const WEBVIEW_DARK_INIT: &str = r#"
 (function() {
-  // 1. Force dark colour-scheme meta
-  var meta = document.createElement('meta');
-  meta.name = 'color-scheme';
-  meta.content = 'dark';
-  document.head.appendChild(meta);
+  // Ping ingwe-ctrl:// — tries the custom URI scheme first; if that is blocked
+  // (WKWebView mixed-content policy rejects it from HTTPS pages), falls back to
+  // the Tauri IPC postMessage bridge via ctrl_action command.
+  function ctrlPing(action) {
+    fetch('ingwe-ctrl://?a=' + action).catch(function() {
+      try {
+        if (window.__TAURI__ && window.__TAURI__.core)
+          window.__TAURI__.core.invoke('ctrl_action', { action: action }).catch(function(){});
+      } catch(_) {}
+    });
+  }
 
-  // 2. Inject baseline dark styles
-  var style = document.createElement('style');
-  style.textContent = ':root{color-scheme:dark!important}html,body{background:#000!important;color:#f0f0f0!important}';
-  document.head.appendChild(style);
+  // 1. Force dark colour-scheme meta (guard: head may be null on about:blank)
+  var _head = document.head || document.documentElement;
+  if (_head) {
+    var meta = document.createElement('meta');
+    meta.name = 'color-scheme';
+    meta.content = 'dark';
+    _head.appendChild(meta);
+
+    // 2. Inject baseline dark styles
+    var style = document.createElement('style');
+    style.textContent = ':root{color-scheme:dark!important}html,body{background:#000!important;color:#f0f0f0!important}';
+    _head.appendChild(style);
+  }
 
   // 3. Override matchMedia so services detect dark mode.
   //    Returns a plain-object wrapper for the dark-mode query — never a MediaQueryList
@@ -249,7 +264,7 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
   //     Rust gates the action on `is_fullscreen` so calling outside fullscreen is a no-op.
   window.addEventListener('keydown', function(e) {
     if (e.isTrusted && e.key === 'Escape') {
-      try { fetch('ingwe-ctrl://?a=escape').catch(function(){}); } catch(_) {}
+      ctrlPing('escape');
     }
   }, false);
 
@@ -260,12 +275,12 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
     function notifyTop(is) {
       if (is === atTop) return;
       atTop = is;
-      try { fetch('ingwe-ctrl://?a=' + (is ? 'top-enter' : 'top-leave')).catch(function(){}); } catch(_) {}
+      ctrlPing(is ? 'top-enter' : 'top-leave');
     }
     function notifyLeft(is) {
       if (is === atLeft) return;
       atLeft = is;
-      try { fetch('ingwe-ctrl://?a=' + (is ? 'left-enter' : 'left-leave')).catch(function(){}); } catch(_) {}
+      ctrlPing(is ? 'left-enter' : 'left-leave');
     }
     window.addEventListener('mousemove', function(e) {
       notifyTop(e.clientY <= 4);
@@ -277,7 +292,7 @@ pub const WEBVIEW_DARK_INIT: &str = r#"
   })();
 
   // 8. Diagnostic ping — logs to Rust so we can confirm the init script loaded
-  try { fetch('ingwe-ctrl://?a=script-ready').catch(function(){}); } catch(_) {}
+  ctrlPing('script-ready');
 })();
 "#;
 

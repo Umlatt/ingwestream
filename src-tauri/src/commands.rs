@@ -10,6 +10,15 @@ use crate::state::AppState;
 const TITLEBAR_H: f64 = 32.0;
 const SIDEBAR_W:  f64 = 208.0; // Tailwind w-52 = 52×4 px
 
+// Chrome-compatible user agent per platform — streaming services (YouTube Music,
+// Spotify, etc.) gate on Chrome/Safari version and reject the bare WKWebView UA.
+#[cfg(target_os = "macos")]
+const SERVICE_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+#[cfg(target_os = "windows")]
+const SERVICE_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const SERVICE_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
 // Per-action debounce state — prevents key-repeat from skipping multiple tracks.
 static MEDIA_DEBOUNCE: std::sync::OnceLock<Mutex<HashMap<String, Instant>>> =
     std::sync::OnceLock::new();
@@ -60,6 +69,7 @@ pub fn init_service_webview(app: &AppHandle) -> Result<(), AppError> {
     log::info!("init_service_webview: creating child webview logical_size={w:.0}x{h:.0}");
     let service_view = main.add_child(
         WebviewBuilder::new("service-view", WebviewUrl::External(blank_url))
+            .user_agent(SERVICE_UA)
             .initialization_script(WEBVIEW_DARK_INIT)
             .on_page_load(move |webview, payload| {
                 let url = payload.url().as_str();
@@ -538,6 +548,14 @@ pub fn toggle_fullscreen_from_shortcut(app: &AppHandle) {
     }
     let _ = app.emit("fullscreen-changed", new_fullscreen);
     log::info!("F11 fullscreen: {new_fullscreen}");
+}
+
+/// Tauri IPC command that mirrors ingwe-ctrl:// for contexts where the custom
+/// URI scheme is blocked (e.g. WKWebView mixed-content rules on HTTPS pages).
+#[tauri::command]
+pub fn ctrl_action(app: AppHandle, action: String) -> Result<(), AppError> {
+    handle_ctrl_protocol(&app, format!("ingwe-ctrl://?a={action}"));
+    Ok(())
 }
 
 /// Drive the OS window into / out of true fullscreen so the taskbar is properly

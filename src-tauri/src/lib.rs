@@ -58,6 +58,7 @@ pub fn run() {
             commands::reset_window_icon,
             commands::show_titlebar_overlay,
             commands::get_work_area,
+            commands::ctrl_action,
         ])
         .setup(|app| {
             tray::build_tray(&app.handle())?;
@@ -77,7 +78,14 @@ pub fn run() {
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if let tauri::WindowEvent::Resized(_) = event {
-                    commands::resize_service_view(window.app_handle());
+                    // Child-webview resize must happen on the main thread on macOS;
+                    // dispatching here from the event thread silently no-ops on WKWebView.
+                    let app = window.app_handle().clone();
+                    if let Some(w) = window.app_handle().get_webview_window("main") {
+                        let _ = w.run_on_main_thread(move || {
+                            commands::resize_service_view(&app);
+                        });
+                    }
                 }
             }
         })
